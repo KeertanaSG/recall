@@ -26,22 +26,49 @@ don't do by default: exact answers from real data, sources you can verify, and s
 
 Telegram means there's no app to install, and saving something takes one message.
 
-## Quick start
+## Setup
 
 You need:
 
-- [uv](https://docs.astral.sh/uv/), which installs the right Python for you
+- [uv](https://docs.astral.sh/uv/), which installs the right Python for you, or Python 3.12+ and pip
 - An [Anthropic API key](https://console.anthropic.com/)
-- A bot token from [@BotFather](https://t.me/BotFather)
+- A bot token from [@BotFather](https://t.me/BotFather): send `/newbot` and follow the prompts
 - Your numeric Telegram user ID, from [@userinfobot](https://t.me/userinfobot)
+
+**1. Get the code and install it**
 
 ```sh
 git clone https://github.com/KeertanaSG/recall.git
 cd recall
 uv sync
-cp .env.example .env    # then fill in the three required values
+```
+
+Or with pip:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --require-hashes -r requirements.txt
+pip install --no-deps .
+```
+
+**2. Add your keys**
+
+```sh
+cp .env.example .env
+```
+
+Fill in `TELEGRAM_BOT_TOKEN`, `ANTHROPIC_API_KEY` and `ALLOWED_USER_IDS` in `.env`. Everything else
+is optional. Recall ignores messages from anyone not in `ALLOWED_USER_IDS`.
+
+**3. Start the bot**
+
+```sh
 uv run recall
 ```
+
+With pip, run `recall` from the activated environment. The same applies to the other `uv run`
+commands in this README.
 
 When you see `Application started`, open your bot in Telegram and send `/start`. The first search
 downloads a small embedding model to `data/models/`. Logs go to the terminal and `data/logs/`.
