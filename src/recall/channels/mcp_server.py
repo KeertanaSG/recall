@@ -152,7 +152,3 @@ def main() -> None:
         server.run("streamable-http", host="127.0.0.1", port=settings.mcp_port)
     else:
         server.run("stdio")
-
-
-if __name__ == "__main__":
-    main()

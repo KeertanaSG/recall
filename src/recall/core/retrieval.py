@@ -27,9 +27,9 @@ FUSION_K = 60  # The standard reciprocal rank fusion constant.
 MIN_MATCH_SCORE = 0.63  # Set from the demo data: unrelated words reached 0.59 to 0.62.
 WORD = re.compile(r"[A-Za-z0-9]{4,}")
 
-PLAN_SYSTEM = render("search_plan_system")
+PLAN_SYSTEM = render("search.plan_system")
 
-GRADE_SYSTEM = render("search_grade_system")
+GRADE_SYSTEM = render("search.grade_system")
 
 PLAN_SCHEMA = {
     "type": "object",
@@ -136,7 +136,7 @@ class Retriever:
             f"{table['name']}({', '.join(column['name'] for column in table['columns'])})"
             for table in config["configurable"]["store"].tables()
         ]
-        prompt = render("search_plan", subjects="; ".join(subjects), question=state["question"])
+        prompt = render("search.plan", subjects="; ".join(subjects), question=state["question"])
         plan = self._ask(PLAN_SYSTEM, prompt, PLAN_SCHEMA) or {}
         return {
             "queries": [state["question"], *plan.get("queries", [])],
@@ -165,7 +165,7 @@ class Retriever:
         entries = json.dumps(
             {result_key(c): c["row"] for c in candidates}, ensure_ascii=False, default=str
         )
-        prompt = render("search_grade", question=state["question"], entries=entries)
+        prompt = render("search.grade", question=state["question"], entries=entries)
         verdict = self._ask(GRADE_SYSTEM, prompt, GRADE_SCHEMA)
         if verdict is None:
             return {"relevant": candidates, "graded": False}

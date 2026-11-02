@@ -1,4 +1,6 @@
-"""Every prompt and long message lives here as a Jinja template, so wording is edited in one place.
+"""Every prompt and long message, as named blocks in Jinja templates grouped by subject.
+
+    render("search.plan", question=...)  is the `plan` block of search.j2
 
 Values passed to a template are inserted as plain text, so saved notes can't act as template code.
 """
@@ -15,4 +17,6 @@ _templates = Environment(
 
 
 def render(name: str, **values) -> str:
-    return _templates.get_template(f"{name}.j2").render(**values)
+    file, block = name.split(".")
+    template = _templates.get_template(f"{file}.j2")
+    return "".join(template.blocks[block](template.new_context(values)))

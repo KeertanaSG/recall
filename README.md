@@ -74,7 +74,7 @@ touches a database directly.
 src/recall/
   channels/   telegram.py, api.py, mcp_server.py: thin layers over the service
   core/       agent.py, tools.py, retrieval.py, nudges.py: the product logic
-  prompts/    Every prompt and long message, as Jinja templates
+  prompts/    Every prompt and long message, in four Jinja templates
   llm/        base.py is the interface, claude.py is the provider
   storage/    base.py is the interface, store.py is SQLite and local embeddings
   service.py  The one path to a user's memory

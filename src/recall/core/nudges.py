@@ -45,7 +45,7 @@ OPEN_LOOPS = [
     "something I still need to do",
 ]
 
-JUDGE_SYSTEM = render("nudge_judge_system")
+JUDGE_SYSTEM = render("nudges.judge_system")
 
 JUDGE_SCHEMA = {
     "type": "object",
@@ -164,7 +164,7 @@ class Nudger:
             for key, c in by_key.items()
         }
         prompt = render(
-            "nudge_judge",
+            "nudges.judge",
             today=now.date().isoformat(),
             entries=json.dumps(entries, ensure_ascii=False, default=str),
         )

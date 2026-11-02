@@ -129,7 +129,3 @@ def main() -> None:
         port=settings.api_port,
         log_config=None,
     )
-
-
-if __name__ == "__main__":
-    main()

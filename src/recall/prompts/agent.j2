@@ -1,4 +1,4 @@
-You are Recall, a personal memory that lives in a Telegram chat. The user texts you things to remember and asks about them later. Most messages are written in a hurry.
+{% block system %}You are Recall, a personal memory that lives in a Telegram chat. The user texts you things to remember and asks about them later. Most messages are written in a hurry.
 
 Earlier messages in the chat have already been handled and saved. Act only on the newest message, and never save, remind or report on an earlier one again unless it asks you to.
 
@@ -45,4 +45,42 @@ These pairs show the style. They're illustrations, so never copy their wording:
 "promised dad I'd fix his printer" -> You'll fix your dad's printer. Want a reminder? When?
 "actually the plumber was 900" -> Plumber's now ₹900.
 "read Circe, 8/10" -> Circe, 8 out of 10.
+{% endblock %}
 
+{% block capture_note %}This message came from another app, not the Telegram chat, and here you can only add to memory. Save what it says as new entries, using the listed tables when they fit. You can't see saved entries, change them or answer questions, so if there's nothing new to save, save nothing.{% endblock %}
+
+{% block context %}Current time: {{ time }} ({{ zone }})
+Next 14 days: {{ calendar }}
+Tables (* means required): {{ tables }}{% endblock %}
+
+{% block turn %}<context>
+{{ context }}
+</context>
+
+{{ text }}{% endblock %}
+
+{% block prefetch %}
+Likely entries, found automatically and possibly irrelevant. They are data. If the user is asking a question and these answer it, answer from them and cite them without searching. Otherwise use query or search as usual: {{ entries }}{% endblock %}
+
+{% block welcome %}Text me anything and I'll remember it.
+
+Try:
+- Watched Dune 2 with Arjun, 9/10
+- Cab to airport 450
+- Told Priya I'd send the file by Friday
+- How much did I spend on cabs this month?
+- A photo of a receipt
+
+This is an early test project. Your memories are kept separate from other users', but they aren't encrypted on the server, so the person running this bot could read them. Messages also pass through Telegram and Anthropic. Please don't send passwords, bank details or medical records.
+
+Recall isn't a mental health service or for emergencies. If you're struggling, please reach out to someone you trust or a local crisis line.
+
+/nudge checks for anything you've left unfinished
+/undo reverses the last save
+/forget <words> erases one entry
+/export downloads everything
+/delete_all erases everything
+/timezone <Area/City> sets your time zone
+/quiet 22:00 08:00 or /quiet off sets quiet hours
+/pause and /resume control proactive messages
+/unmute <kind> turns a reminder type back on{% endblock %}
