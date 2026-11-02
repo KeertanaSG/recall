@@ -130,7 +130,7 @@ estimates.
 | 3 | One week of real use | Accuracy | Tests habit and real messages, with 2 or 3 testers after | 1 week |
 | 3 | Write-up, demo video, public repo | Accuracy | Publishes results, including the baseline comparison | 2 days |
 | 4 | Read-only web view | Accuracy | Lets people inspect any table and its history | 3 to 4 days |
-| 4 | Remote MCP | Scale | Adds login so any device can connect | 3 to 5 days |
+| 4 | Remote MCP on a server (Cloudflare tunnel from the Mac works today) | Scale | Moves MCP to an always-on server and adds login so any device can connect | 3 to 5 days |
 | 4 | Learned nudge ranking | Accuracy | A contextual bandit learns from done, snooze and stop | 1 week |
 | 4 | Entity resolution model | Accuracy | A pairwise model and clustering match names across tables | 1 week |
 | 4 | Recurring and anomaly detection | Accuracy | Time-series methods find repeats and unusual values in any numeric table | 3 to 4 days |

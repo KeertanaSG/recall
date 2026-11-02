@@ -10,12 +10,14 @@ import argparse
 import asyncio
 import os
 from collections.abc import Callable
+from urllib.parse import urlsplit
 
 from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
+from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
 
 from recall.access import Identity, TokenStore
@@ -141,6 +143,15 @@ def create_server(service: RecallService, settings: Settings, http: bool = False
     return server
 
 
+def transport_security(settings: Settings) -> TransportSecuritySettings:
+    """Accept only this machine and the public address, so a tunnel works and rebinding doesn't."""
+    public = urlsplit(settings.mcp_public_url)
+    return TransportSecuritySettings(
+        allowed_hosts=[f"127.0.0.1:{settings.mcp_port}", public.netloc],
+        allowed_origins=[f"{public.scheme}://{public.netloc}"],
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--http", action="store_true", help="Serve over HTTP on localhost")
@@ -149,6 +160,11 @@ def main() -> None:
     setup(settings.data_dir, "mcp")
     server = create_server(build_service(settings), settings, args.http)
     if args.http:
-        server.run("streamable-http", host="127.0.0.1", port=settings.mcp_port)
+        server.run(
+            "streamable-http",
+            host="127.0.0.1",
+            port=settings.mcp_port,
+            transport_security=transport_security(settings),
+        )
     else:
         server.run("stdio")
