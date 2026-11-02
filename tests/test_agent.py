@@ -1,12 +1,12 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import anthropic
 import httpx
 import pytest
 
-from recall.agent import (
+from recall.core.agent import (
     Agent,
     Reply,
     Source,
@@ -15,10 +15,11 @@ from recall.agent import (
     resolve_citations,
     summarize_row,
 )
-from recall.store import REMINDERS
-from recall.tools import TOOLS, Tools
+from recall.core.tools import TOOLS, Tools
+from recall.llm.claude import ClaudeLLM
+from recall.storage.store import REMINDERS
 
-NOW = datetime(2026, 11, 1, 10, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 1, 10, 0, tzinfo=UTC)
 
 
 def text(value):
@@ -26,7 +27,9 @@ def text(value):
 
 
 def tool(tool_name, **tool_input):
-    return SimpleNamespace(type="tool_use", id=f"call_{tool_name}", name=tool_name, input=tool_input)
+    return SimpleNamespace(
+        type="tool_use", id=f"call_{tool_name}", name=tool_name, input=tool_input
+    )
 
 
 def response(*content, stop_reason=None):
@@ -55,7 +58,7 @@ class ScriptedClient:
 
 def agent_with(*responses):
     client = ScriptedClient(*responses)
-    return Agent(client, "claude-opus-5-5", "low"), client
+    return Agent(ClaudeLLM(client), "claude-opus-5-5", "low"), client
 
 
 def tool_names(call):
@@ -65,6 +68,52 @@ def tool_names(call):
 def notes_table(store):
     store.create_table("notes", "Notes", [{"name": "body", "type": "text"}])
     return store.add_row("notes", {"body": "private"})
+
+
+def test_a_crash_midway_leaves_nothing_saved(store, monkeypatch):
+    notes_table(store)
+    store.turn_id = None
+    agent, _ = agent_with(
+        response(tool("add_row", table="notes", values={"body": "first"})),
+        response(tool("add_row", table="notes", values={"body": "second"})),
+    )
+    real = store.add_row
+    calls = []
+
+    def fails_second_time(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("disk failure")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(store, "add_row", fails_second_time)
+    with pytest.raises(TurnFailed):
+        agent.respond(store, "two things", NOW)
+    assert store.get_row("notes", 2) is None and store.get_row("notes", 1)
+
+
+def test_a_chat_history_failure_keeps_the_saved_turn(store, monkeypatch):
+    notes_table(store)
+    store.turn_id = None
+    agent, _ = agent_with(
+        response(tool("add_row", table="notes", values={"body": "new"})), response(text("Saved."))
+    )
+
+    def fails(*_args):
+        raise RuntimeError("locked")
+
+    monkeypatch.setattr(store, "log_exchange", fails)
+    assert agent.respond(store, "new", NOW).text == "Saved."
+    assert store.get_row("notes", 2)["body"] == "new"
+
+
+def test_app_capture_reports_a_failed_save_instead_of_nothing_saved(store):
+    notes_table(store)
+    agent, _ = agent_with(
+        response(tool("add_row", table="missing", values={"body": "x"})), response(text("Sorry."))
+    )
+    with pytest.raises(TurnFailed, match="Every save failed"):
+        agent.capture(store, "new", NOW)
 
 
 def test_app_capture_adds_and_returns_only_what_it_added(store):
@@ -124,19 +173,42 @@ def test_photo_reaches_the_model_but_is_never_kept(store):
     )
     agent.respond(store, "[photo] lunch", NOW, image=b"jpeg-bytes")
     image, caption = client.calls[0]["messages"][-1]["content"]
-    assert image["source"] == {"type": "base64", "media_type": "image/jpeg", "data": "anBlZy1ieXRlcw=="}
+    assert image["source"] == {
+        "type": "base64",
+        "media_type": "image/jpeg",
+        "data": "anBlZy1ieXRlcw==",
+    }
     assert caption["text"].endswith("[photo] lunch")
     assert "anBlZy1ieXRlcw" not in str(store.recent_messages())
     assert store.recent_messages()[0]["content"] == "[photo] lunch"
-    assert store.conn.execute("SELECT source_text FROM notes WHERE id = 2").fetchone()[0] == "[photo] lunch"
+    assert (
+        store.conn.execute("SELECT source_text FROM notes WHERE id = 2").fetchone()[0]
+        == "[photo] lunch"
+    )
 
 
 def test_capture_creates_table_saves_source_and_offers_undo(store):
     agent, _ = agent_with(
         response(tool("create_table", subject="movies", example="Watched Dune 2, 9/10")),
-        response(text(json.dumps({"name": "movies", "description": "Films", "columns": [
-            {"name": "title", "type": "text", "description": "", "required": True},
-            {"name": "rating", "type": "real", "description": "", "required": False}]}))),
+        response(
+            text(
+                json.dumps(
+                    {
+                        "name": "movies",
+                        "description": "Films",
+                        "columns": [
+                            {"name": "title", "type": "text", "description": "", "required": True},
+                            {
+                                "name": "rating",
+                                "type": "real",
+                                "description": "",
+                                "required": False,
+                            },
+                        ],
+                    }
+                )
+            )
+        ),
         response(tool("add_row", table="movies", values={"title": "Dune 2", "rating": 9})),
         response(text("Saved: Dune 2, 9/10.")),
     )
@@ -151,7 +223,9 @@ def test_question_has_no_undo_and_shows_database_source(store, expenses):
     store.add_row(expenses, {"item": "cab", "amount": 450})
     store.turn_id = None
     agent, _ = agent_with(
-        response(tool("query", sql="SELECT SUM(amount) AS t, group_concat(id) AS ids FROM expenses")),
+        response(
+            tool("query", sql="SELECT SUM(amount) AS t, group_concat(id) AS ids FROM expenses")
+        ),
         response(text("You spent 450 on cabs [expenses#1].")),
     )
     reply = agent.respond(store, "cab spend?", NOW)
@@ -169,8 +243,17 @@ def test_saves_show_no_source_list(store, expenses):
 
 
 def test_row_summary_reads_naturally():
-    row = {"id": 1, "title": "Dune", "rating": 8.0, "is_rewatch": 1, "watched_with": "Arjun",
-           "notes": None, "source_text": "x", "created_at": "2026-11-01T10:00:00+00:00", "updated_at": "x"}
+    row = {
+        "id": 1,
+        "title": "Dune",
+        "rating": 8.0,
+        "is_rewatch": 1,
+        "watched_with": "Arjun",
+        "notes": None,
+        "source_text": "x",
+        "created_at": "2026-11-01T10:00:00+00:00",
+        "updated_at": "x",
+    }
     assert summarize_row(row, frozenset({"is_rewatch"})) == "Dune · rating 8 · Arjun · saved Nov 1"
 
 
@@ -232,8 +315,14 @@ def test_three_sources_are_listed_in_full():
 
 def test_summary_stays_short_and_keeps_what_says_the_most():
     row = {
-        "id": 1, "item": "Masala Dosa", "currency": "INR", "category": "food", "amount": 120.0,
-        "spent_on": "2026-10-28", "merchant": "Cafe Malabar", "created_at": "2026-11-02T08:38:21+00:00",
+        "id": 1,
+        "item": "Masala Dosa",
+        "currency": "INR",
+        "category": "food",
+        "amount": 120.0,
+        "spent_on": "2026-10-28",
+        "merchant": "Cafe Malabar",
+        "created_at": "2026-11-02T08:38:21+00:00",
     }
     assert summarize_row(row) == "Masala Dosa · amount 120 · INR · Oct 28"
     assert summarize_row({**row, "item": "x" * 200}).endswith("…")
@@ -245,7 +334,7 @@ def test_prefetch_puts_likely_rows_in_the_first_message(store, expenses):
     store.add_row(expenses, {"item": "ferry ticket", "amount": 90})
     store.turn_id = None
     client = ScriptedClient(response(text("90 [expenses#1].")))
-    Agent(client, "m", "low", prefetch=True).respond(store, "ferry ticket cost?", NOW)
+    Agent(ClaudeLLM(client), "m", "low", prefetch=True).respond(store, "ferry ticket cost?", NOW)
     first = client.calls[0]["messages"][-1]["content"]
     assert "Likely entries" in first and "expenses#1" in first
 
@@ -253,8 +342,8 @@ def test_prefetch_puts_likely_rows_in_the_first_message(store, expenses):
 def test_prefetch_survives_an_embedding_outage_and_is_off_by_default(store, embedder, expenses):
     embedder.failing = True
     client = ScriptedClient(response(text("Nothing saved.")), response(text("Nothing saved.")))
-    Agent(client, "m", "low", prefetch=True).respond(store, "ferry", NOW)
-    Agent(client, "m", "low").respond(store, "ferry", NOW)
+    Agent(ClaudeLLM(client), "m", "low", prefetch=True).respond(store, "ferry", NOW)
+    Agent(ClaudeLLM(client), "m", "low").respond(store, "ferry", NOW)
     assert "Likely entries" not in client.calls[1]["messages"][-1]["content"]
 
 
@@ -336,7 +425,12 @@ def test_reminder_time_uses_the_users_zone(store):
     tools = Tools(store, "send file", NOW, None, None)
     tools.run(
         "set_reminder",
-        {"text": "Send file", "remind_at": "2026-11-06T09:00", "kind": "promise", "explicit": False},
+        {
+            "text": "Send file",
+            "remind_at": "2026-11-06T09:00",
+            "kind": "promise",
+            "explicit": False,
+        },
     )
     assert store.get_row(REMINDERS, 1)["remind_at"] == "2026-11-06T03:30:00+00:00"
 
@@ -354,14 +448,20 @@ def test_unlinked_reminder_links_to_the_row_just_saved(store, expenses):
 
 
 def test_past_and_muted_reminders_are_refused(store):
-    from recall.store import ToolError
+    from recall.storage.store import ToolError
 
     tools = Tools(store, "x", NOW, None, None)
     with pytest.raises(ToolError, match="past"):
-        tools.run("set_reminder", {"text": "x", "remind_at": "2020-01-01T09:00", "kind": "other", "explicit": True})
+        tools.run(
+            "set_reminder",
+            {"text": "x", "remind_at": "2020-01-01T09:00", "kind": "other", "explicit": True},
+        )
     store.mute_kind("promise")
     with pytest.raises(ToolError, match="turned off"):
-        tools.run("set_reminder", {"text": "x", "remind_at": "2026-12-01T09:00", "kind": "promise", "explicit": False})
+        tools.run(
+            "set_reminder",
+            {"text": "x", "remind_at": "2026-12-01T09:00", "kind": "promise", "explicit": False},
+        )
 
 
 def test_agent_has_no_delete_tool():

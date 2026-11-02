@@ -1,13 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from recall.access import Limit, UsageLimiter
 from recall.config import Settings, parse_allowed_users
-from recall.store import known_user_ids
-from recall.usage import Limit, UsageLimiter
+from recall.storage.store import known_user_ids
 
-NOW = datetime(2026, 11, 1, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 1, 12, tzinfo=UTC)
 
 
 def limiter(tmp_path, per_user=2, total=3):
@@ -59,7 +59,9 @@ def test_total_limit_holds_across_separate_connections(tmp_path):
         assert sum(pool.map(spend_many, limiters)) == 40
 
 
-@pytest.mark.parametrize(("value", "expected"), [("*", None), (" * ", None), ("1, 2,", frozenset({1, 2}))])
+@pytest.mark.parametrize(
+    ("value", "expected"), [("*", None), (" * ", None), ("1, 2,", frozenset({1, 2}))]
+)
 def test_parse_allowed_users(value, expected):
     assert parse_allowed_users(value) == expected
 
@@ -78,3 +80,13 @@ def test_known_user_ids_ignores_other_files(tmp_path):
     (users / "notes.sqlite").touch()
     assert known_user_ids(tmp_path) == [111]
     assert known_user_ids(tmp_path / "missing") == []
+
+
+def test_a_bad_number_in_settings_is_a_clear_error(monkeypatch):
+    monkeypatch.setattr("recall.config.load_dotenv", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("ALLOWED_USER_IDS", "1")
+    monkeypatch.setenv("RECALL_API_PORT", "abc")
+    with pytest.raises(SystemExit, match="numeric setting"):
+        Settings.from_env()

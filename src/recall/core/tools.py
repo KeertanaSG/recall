@@ -1,13 +1,21 @@
-"""The agent's tools. There is deliberately no delete tool: deleting always takes a user tap."""
+"""The agent's tools, and the designer behind create_table.
+
+There is deliberately no delete tool: deleting always takes a user tap. New tables get a stronger
+model, because they outlive the message that created them.
+"""
 
 import json
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from recall.retrieval import Retriever
-from recall.schema_design import TableDesigner
-from recall.store import COLUMN_TYPES, Store, ToolError
+from recall.core.retrieval import Retriever
+from recall.llm.base import LLM, LLMError
+from recall.logs import get_logger
+from recall.prompts import render
+from recall.storage.base import COLUMN_TYPES, MemoryStore, ToolError
+
+log = get_logger(__name__)
 
 REMINDER_KINDS = ["deadline", "promise", "follow_up", "other"]
 ADD_ONLY_TOOLS = frozenset({"create_table", "add_column", "add_row", "set_reminder"})
@@ -30,8 +38,14 @@ TOOLS: list[dict] = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "subject": {"type": "string", "description": "The broad subject, such as movies or loans."},
-                "example": {"type": "string", "description": "The user's message that needs this table."},
+                "subject": {
+                    "type": "string",
+                    "description": "The broad subject, such as movies or loans.",
+                },
+                "example": {
+                    "type": "string",
+                    "description": "The user's message that needs this table.",
+                },
                 "confirmed_distinct": {
                     "type": "boolean",
                     "description": "Set true only after a similar-table warning, if the subject truly differs.",
@@ -171,10 +185,70 @@ TOOLS: list[dict] = [
 ]
 
 
+DESIGN_SYSTEM = render("table_design_system")
+
+DESIGN_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "name": {"type": "string"},
+        "description": {"type": "string"},
+        "columns": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string"},
+                    "type": {"type": "string", "enum": sorted(COLUMN_TYPES)},
+                    "description": {"type": "string"},
+                    "required": {"type": "boolean"},
+                },
+                "required": ["name", "type", "description", "required"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["name", "description", "columns"],
+    "additionalProperties": False,
+}
+
+
+class TableDesigner:
+    def __init__(self, llm: LLM, model: str):
+        self.llm = llm
+        self.model = model
+
+    def create(
+        self, store: MemoryStore, subject: str, example: str, confirmed_distinct: bool = False
+    ) -> dict:
+        design = self._design(store, subject, example)
+        store.create_table(
+            design["name"], design["description"], design["columns"], confirmed_distinct
+        )
+        log.info("table_created", table=design["name"], columns=len(design["columns"]))
+        return {
+            "created": design["name"],
+            "columns": [
+                {"name": c["name"], "type": c["type"], "required": c["required"]}
+                for c in design["columns"]
+            ],
+        }
+
+    def _design(self, store: MemoryStore, subject: str, example: str) -> dict:
+        existing = [f"{t['name']}: {t['description']}" for t in store.tables()]
+        prompt = render(
+            "table_design", subject=subject, example=example, existing=existing or "none"
+        )
+        try:
+            return self.llm.ask_json(self.model, DESIGN_SYSTEM, prompt, DESIGN_SCHEMA)
+        except LLMError as exc:
+            log.warning("table_design_failed", error_type=type(exc).__name__)
+            raise ToolError("Couldn't design the table just now. Try once more.") from exc
+
+
 class Tools:
     def __init__(
         self,
-        store: Store,
+        store: MemoryStore,
         source_text: str,
         now: datetime,
         retriever: Retriever | None,
@@ -189,6 +263,7 @@ class Tools:
         self.schemas = [tool for tool in TOOLS if allowed is None or tool["name"] in allowed]
         self.last_saved: tuple[str, int] | None = None
         self.saved: list[str] = []
+        self.failures = 0
 
     def run(self, name: str, tool_input: dict[str, Any]) -> str:
         handler = getattr(self, f"_{name}", None)
@@ -196,7 +271,11 @@ class Tools:
             raise ToolError(f"Unknown tool {name!r}.")
         try:
             return json.dumps(handler(**tool_input), ensure_ascii=False, default=str)
+        except ToolError:
+            self.failures += 1
+            raise
         except TypeError as exc:
+            self.failures += 1
             raise ToolError(f"Bad arguments for {name}: {exc}") from exc
 
     def _list_tables(self) -> list[dict]:

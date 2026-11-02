@@ -1,18 +1,18 @@
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
 
-from recall.api import create_app
-from recall.auth import OWNER, READ, WRITE, TokenStore, telegram_identity
+from recall.access import OWNER, READ, WRITE, TokenStore, UsageLimiter, telegram_identity
+from recall.channels.api import create_app
+from recall.channels.mcp_server import BearerVerifier, create_server
 from recall.config import Settings
-from recall.mcp_server import BearerVerifier, create_server
-from recall.service import AccessDenied, LocalStoreProvider, NotFound, RateLimited, RecallService
-from recall.usage import UsageLimiter
+from recall.service import AccessDenied, NotFound, RateLimited, RecallService
+from recall.storage.store import SqliteStoreProvider
 
-NOW = datetime(2026, 11, 2, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 2, tzinfo=UTC)
 
 
 @pytest.fixture
@@ -26,12 +26,16 @@ def agent():
 @pytest.fixture
 def service(tmp_path, embedder, agent):
     settings = Settings("t", frozenset({1, 2}), tmp_path, "Asia/Kolkata", api_requests_per_minute=5)
-    stores = LocalStoreProvider(settings, embedder)
+    stores = SqliteStoreProvider(settings, embedder)
     with stores.open(1) as store:
         store.create_table("notes", "Notes", [{"name": "body", "type": "text"}])
         store.add_row("notes", {"body": "secret of user one"})
     return RecallService(
-        settings, TokenStore(tmp_path / "auth.sqlite"), stores, agent, UsageLimiter(tmp_path / "u.sqlite", 2, 100)
+        settings,
+        TokenStore(tmp_path / "auth.sqlite"),
+        stores,
+        agent,
+        UsageLimiter(tmp_path / "u.sqlite", 2, 100),
     )
 
 
@@ -124,7 +128,9 @@ def test_rate_limit_applies_per_token(service, reader, writer):
         service.list_tables(identity)
     with pytest.raises(RateLimited):
         service.list_tables(identity)
-    assert service.list_tables(service.tokens.verify(writer)) == service.list_tables(service.tokens.verify(writer))
+    assert service.list_tables(service.tokens.verify(writer)) == service.list_tables(
+        service.tokens.verify(writer)
+    )
 
 
 def test_remember_counts_against_daily_limit(service, writer):
@@ -157,14 +163,20 @@ def test_reminder_needs_write_and_appears_in_the_list(service, writer):
 
 def test_every_data_route_requires_a_token(client):
     calls = [
-        ("post", "/v1/search", {"text": "x"}), ("post", "/v1/query", {"sql": "SELECT 1"}),
-        ("get", "/v1/tables", None), ("get", "/v1/about/x", None), ("get", "/v1/entries/notes/1", None), ("get", "/v1/reminders", None),
+        ("post", "/v1/search", {"text": "x"}),
+        ("post", "/v1/query", {"sql": "SELECT 1"}),
+        ("get", "/v1/tables", None),
+        ("get", "/v1/about/x", None),
+        ("get", "/v1/entries/notes/1", None),
+        ("get", "/v1/reminders", None),
         ("post", "/v1/reminders", {"text": "x", "remind_at": "2030-01-01T09:00"}),
         ("post", "/v1/remember", {"text": "x"}),
     ]
     for method, path, body in calls:
         assert client.request(method, path, json=body).status_code == 401, path
-        assert client.request(method, path, json=body, headers=auth("rcl_bad")).status_code == 401, path
+        assert (
+            client.request(method, path, json=body, headers=auth("rcl_bad")).status_code == 401
+        ), path
 
 
 def test_api_has_no_delete_route_or_public_docs(client):
@@ -176,17 +188,38 @@ def test_api_has_no_delete_route_or_public_docs(client):
 
 def test_api_reads_and_keeps_queries_read_only(client, reader):
     headers = auth(reader)
-    assert client.post("/v1/search", json={"text": "secret"}, headers=headers).json()["results"][0]["row"]["id"] == 1
-    assert client.post("/v1/query", json={"sql": "DELETE FROM notes"}, headers=headers).status_code == 400
-    assert client.post("/v1/query", json={"sql": "SELECT * FROM _history"}, headers=headers).status_code == 400
+    assert (
+        client.post("/v1/search", json={"text": "secret"}, headers=headers).json()["results"][0][
+            "row"
+        ]["id"]
+        == 1
+    )
+    assert (
+        client.post("/v1/query", json={"sql": "DELETE FROM notes"}, headers=headers).status_code
+        == 400
+    )
+    assert (
+        client.post(
+            "/v1/query", json={"sql": "SELECT * FROM _history"}, headers=headers
+        ).status_code
+        == 400
+    )
     assert client.get("/v1/entries/_messages/1", headers=headers).status_code == 404
-    assert client.get("/v1/entries/notes/1", headers=headers).json()["entry"]["body"] == "secret of user one"
+    assert (
+        client.get("/v1/entries/notes/1", headers=headers).json()["entry"]["body"]
+        == "secret of user one"
+    )
 
 
 def test_api_maps_errors_to_status_codes(client, reader, writer):
     assert client.post("/v1/remember", json={"text": "x"}, headers=auth(reader)).status_code == 403
-    assert client.post("/v1/remember", json={"text": "x"}, headers=auth(writer)).json() == {"saved": ["notes#2"]}
-    assert client.post("/v1/remember", json={"text": "x" * 5000}, headers=auth(writer)).status_code == 422
+    assert client.post("/v1/remember", json={"text": "x"}, headers=auth(writer)).json() == {
+        "saved": ["notes#2"]
+    }
+    assert (
+        client.post("/v1/remember", json={"text": "x" * 5000}, headers=auth(writer)).status_code
+        == 422
+    )
 
 
 def test_mcp_tools_have_no_delete_and_label_reads(service, reader, monkeypatch):
@@ -198,7 +231,16 @@ def test_mcp_tools_have_no_delete_and_label_reads(service, reader, monkeypatch):
         return names, await server.call_tool("list_tables", {})
 
     names, result = asyncio.run(run())
-    assert names == {"about", "search_memory", "query_memory", "list_tables", "get_entry", "list_reminders", "remember", "set_reminder"}
+    assert names == {
+        "about",
+        "search_memory",
+        "query_memory",
+        "list_tables",
+        "get_entry",
+        "list_reminders",
+        "remember",
+        "set_reminder",
+    }
     assert "saved data" in str(result)
 
 
@@ -219,3 +261,22 @@ def test_bearer_verifier(service, reader):
     assert asyncio.run(verifier.verify_token("rcl_bad")) is None
     access = asyncio.run(verifier.verify_token(reader))
     assert access.scopes == [READ]
+
+
+def test_a_crash_is_a_plain_500_with_no_detail(service, reader):
+    def crash(_identity):
+        raise RuntimeError("my private note")
+
+    service.list_tables = crash
+    client = TestClient(create_app(service), raise_server_exceptions=False)
+    response = client.get("/v1/tables", headers=auth(reader))
+    assert response.status_code == 500 and response.json() == {"detail": "Something went wrong."}
+
+
+def test_a_failed_audit_write_keeps_the_result(service, reader, monkeypatch):
+    def fails(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    identity = service.tokens.verify(reader)
+    monkeypatch.setattr(service.tokens, "record", fails)
+    assert service.list_tables(identity)[0]["name"] == "notes"

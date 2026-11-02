@@ -6,21 +6,19 @@ so a caller can't ask for someone else's data. Tokens are also rate limited and 
 """
 
 import json
-from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Protocol
+from contextlib import contextmanager, nullcontext
+from datetime import UTC, datetime
 
-import anthropic
-
-from recall.agent import Agent, Reply, TurnFailed
-from recall.auth import OWNER, READ, WRITE, Identity, TokenStore
+from recall.access import OWNER, READ, WRITE, Identity, Limit, TokenStore, UsageLimiter
 from recall.config import Settings
-from recall.embeddings import Embedder, LocalEmbedder
-from recall.nudges import Nudger
-from recall.retrieval import hybrid_search
-from recall.store import Store, ToolError, delete_user_data, known_user_ids, user_db_path
-from recall.tools import Tools
-from recall.usage import Limit, UsageLimiter
+from recall.core.agent import Agent, Reply, TurnFailed
+from recall.core.nudges import Nudger
+from recall.core.retrieval import hybrid_search
+from recall.core.tools import Tools
+from recall.logs import bind, get_logger, measured, user_ref
+from recall.storage.base import StoreProvider, ToolError
+
+log = get_logger(__name__)
 
 LIMIT_MESSAGES = {
     Limit.USER: "You've reached today's message limit. Please try again tomorrow.",
@@ -44,30 +42,7 @@ class Unavailable(Exception):
     """A model step failed, and nothing was saved."""
 
 
-class StoreProvider(Protocol):
-    """Where user databases live. Moving storage later only means replacing this."""
-
-    def open(self, user_id: int) -> Store: ...
-
-    def user_ids(self) -> list[int]: ...
-
-    def delete(self, user_id: int) -> None: ...
-
-
-class LocalStoreProvider:
-    def __init__(self, settings: Settings, embedder: Embedder):
-        self.settings = settings
-        self.embedder = embedder
-
-    def open(self, user_id: int) -> Store:
-        path = user_db_path(self.settings.data_dir, user_id)
-        return Store(path, self.embedder, self.settings.default_timezone)
-
-    def user_ids(self) -> list[int]:
-        return known_user_ids(self.settings.data_dir)
-
-    def delete(self, user_id: int) -> None:
-        delete_user_data(self.settings.data_dir, user_id)
+EXPECTED = (AccessDenied, NotFound, RateLimited, ToolError, Unavailable)
 
 
 class RecallService:
@@ -88,11 +63,17 @@ class RecallService:
         self.nudger = nudger
 
     def _record(self, identity: Identity, action: str, outcome: str) -> None:
-        if identity.token_id is not None:
+        if identity.token_id is None:
+            return
+        try:
             self.tokens.record(identity, action, outcome)
+        except Exception:
+            # This runs as a request ends, so it mustn't replace the request's own result.
+            log.exception("audit_failed", action=action, audit_outcome=outcome)
 
     def _authorize(self, identity: Identity, action: str, scope: str) -> None:
         if scope not in identity.scopes or not self.settings.allows(identity.user_id):
+            log.warning("access_denied", action=action, scope=scope)
             self._record(identity, action, "denied")
             raise AccessDenied(f"This token can't {action}.")
 
@@ -104,20 +85,28 @@ class RecallService:
     @contextmanager
     def access(self, identity: Identity, action: str, scope: str):
         """Authorize a call, open that user's store, and audit the outcome."""
-        self._authorize(identity, action, scope)
-        limit = self.settings.api_requests_per_minute
-        if identity.token_id is not None and not self.tokens.within_rate_limit(identity.token_id, limit):
-            self._record(identity, action, "rate_limited")
-            raise RateLimited("Too many requests. Try again in a minute.")
-        outcome = "ok"
-        try:
-            with self.stores.open(identity.user_id) as store:
-                yield store
-        except BaseException:
-            outcome = "error"
-            raise
-        finally:
-            self._record(identity, action, outcome)
+        by_token = identity.token_id is not None
+        who = {"user": user_ref(identity.user_id), "channel": "token" if by_token else "telegram"}
+        with bind(**who, **({"token_id": identity.token_id} if by_token else {})):
+            self._authorize(identity, action, scope)
+            limit = self.settings.api_requests_per_minute
+            if by_token and not self.tokens.within_rate_limit(identity.token_id, limit):
+                log.warning("rate_limited", action=action)
+                self._record(identity, action, "rate_limited")
+                raise RateLimited("Too many requests. Try again in a minute.")
+            outcome = "ok"
+            # The bot opens a store every tick, so only token calls are logged as requests.
+            request = (
+                measured(log, "request", EXPECTED, action=action) if by_token else nullcontext()
+            )
+            try:
+                with request, self.stores.open(identity.user_id) as store:
+                    yield store
+            except BaseException:
+                outcome = "error"
+                raise
+            finally:
+                self._record(identity, action, outcome)
 
     def users(self) -> list[int]:
         """Everyone with saved data who is still allowed, for background work like reminders."""
@@ -138,7 +127,9 @@ class RecallService:
         self._authorize(identity, "delete everything", OWNER)
         self.stores.delete(identity.user_id)
 
-    def search(self, identity: Identity, text: str, table: str | None = None, limit: int = 8) -> list[dict]:
+    def search(
+        self, identity: Identity, text: str, table: str | None = None, limit: int = 8
+    ) -> list[dict]:
         """Search by meaning and keyword, with no model call. The caller judges relevance."""
         with self.access(identity, "search", READ) as store:
             return hybrid_search(store, text, min(max(limit, 1), 20), table)
@@ -181,46 +172,6 @@ class RecallService:
     ) -> dict:
         """Schedule a reminder the user asked for. It's delivered on Telegram."""
         with self.access(identity, "set_reminder", WRITE) as store:
-            tools = Tools(store, text, datetime.now(timezone.utc), None, None)
+            tools = Tools(store, text, datetime.now(UTC), None, None)
             arguments = {"text": text, "remind_at": remind_at, "kind": kind, "explicit": True}
             return json.loads(tools.run("set_reminder", arguments))
-
-
-def build_agent(settings: Settings) -> Agent:
-    return Agent(
-        anthropic.Anthropic(),
-        settings.model,
-        settings.effort,
-        settings.fast_mode,
-        settings.retrieval_model,
-        settings.design_model,
-        settings.prefetch,
-    )
-
-
-def build_service(settings: Settings) -> RecallService:
-    agent = build_agent(settings)
-    return RecallService(
-        settings,
-        TokenStore(settings.data_dir / "auth.sqlite"),
-        LocalStoreProvider(settings, LocalEmbedder(settings.data_dir / "models")),
-        agent,
-        UsageLimiter(
-            settings.data_dir / "usage.sqlite",
-            settings.max_messages_per_user_per_day,
-            settings.max_messages_per_day,
-        ),
-        Nudger(agent.client, settings.retrieval_model, settings.fast_mode),
-    )
-
-
-__all__ = [
-    "AccessDenied",
-    "NotFound",
-    "RateLimited",
-    "RecallService",
-    "ToolError",
-    "Unavailable",
-    "build_agent",
-    "build_service",
-]

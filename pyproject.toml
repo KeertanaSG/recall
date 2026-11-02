@@ -8,6 +8,7 @@ dependencies = [
     "anthropic>=1.0",
     "fastapi>=0.162.0",
     "fastembed>=0.9.1",
+    "jinja2>=3.1.6",
     "langchain-core>=1.7.3",
     "langgraph>=1.2.19",
     "mcp>=2.3.0",
@@ -20,10 +21,10 @@ dependencies = [
 
 [project.scripts]
 recall = "recall.__main__:main"
-recall-api = "recall.api:main"
-recall-demo = "recall.demo:main"
-recall-mcp = "recall.mcp_server:main"
-recall-tokens = "recall.token_cli:main"
+recall-api = "recall.channels.api:main"
+recall-demo = "recall.cli:demo"
+recall-mcp = "recall.channels.mcp_server:main"
+recall-tokens = "recall.cli:tokens"
 
 [dependency-groups]
 dev = [

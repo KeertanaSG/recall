@@ -2,16 +2,15 @@
 
 import asyncio
 import io
-import logging
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
-from telegram.error import Forbidden, TelegramError
+from telegram.error import BadRequest, Forbidden, TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -21,15 +20,18 @@ from telegram.ext import (
     filters,
 )
 
-from recall.agent import TurnFailed, row_date, short_date, summarize_row
-from recall.auth import OWNER, telegram_identity
+from recall.access import OWNER, telegram_identity
 from recall.config import Settings
-from recall.reminders import select_sendable, start_of_local_day
-from recall.retrieval import find_entries
-from recall.service import RateLimited, RecallService, build_service
-from recall.store import ToolError
+from recall.core.agent import TurnFailed, row_date, short_date, summarize_row
+from recall.core.nudges import select_sendable, start_of_local_day
+from recall.core.retrieval import find_entries
+from recall.factory import build_service
+from recall.logs import get_logger, user_ref
+from recall.prompts import render
+from recall.service import RateLimited, RecallService
+from recall.storage.base import ToolError
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 TICK_SECONDS = 30
 NUDGE_TICK_SECONDS = 3600
@@ -39,32 +41,7 @@ TELEGRAM_LIMIT = 4000
 FORGET_PAGE = 5
 FORGET_MATCHES = 50
 FORGET_NARROW_AT = 20
-WELCOME = """\
-Text me anything and I'll remember it.
-
-Try:
-- Watched Dune 2 with Arjun, 9/10
-- Cab to airport 450
-- Told Priya I'd send the file by Friday
-- How much did I spend on cabs this month?
-- A photo of a receipt
-
-This is an early test project. Your memories are kept separate from other users', but they \
-aren't encrypted on the server, so the person running this bot could read them. Messages also \
-pass through Telegram and Anthropic. Please don't send passwords, bank details or medical records.
-
-Recall isn't a mental health service or for emergencies. If you're struggling, please reach out \
-to someone you trust or a local crisis line.
-
-/nudge checks for anything you've left unfinished
-/undo reverses the last save
-/forget <words> erases one entry
-/export downloads everything
-/delete_all erases everything
-/timezone <Area/City> sets your time zone
-/quiet 22:00 08:00 or /quiet off sets quiet hours
-/pause and /resume control proactive messages
-/unmute <kind> turns a reminder type back on"""
+WELCOME = render("welcome")
 
 COMMANDS = [
     BotCommand("nudge", "Check for unfinished business"),
@@ -88,7 +65,7 @@ def allowed_only(handler: Handler) -> Handler:
     async def wrapper(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         user = update.effective_user
         if user is None or not context.bot_data["settings"].allows(user.id):
-            log.info("Ignored a user who isn't on the allowlist")
+            log.info("user_ignored")
             return
         await handler(update, context)
 
@@ -113,7 +90,7 @@ async def keep_typing(chat) -> None:
         try:
             await chat.send_action(ChatAction.TYPING)
         except TelegramError:
-            log.warning("Couldn't send the typing indicator")
+            log.warning("typing_indicator_failed")
         await asyncio.sleep(TYPING_SECONDS)
 
 
@@ -133,14 +110,17 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         file = await update.message.photo[-1].get_file()  # The last size is the largest.
         image = bytes(await file.download_as_bytearray())
     except TelegramError:
-        log.exception("Couldn't download a photo")
+        log.warning("photo_download_failed")
         await update.message.reply_text("I couldn't open that photo. Please send it again.")
         return
     status = await update.message.reply_text("Reading your photo…")
     try:
         await run_turn(update, context, f"[photo] {update.message.caption or ''}".strip(), image)
     finally:
-        await status.delete()
+        try:
+            await status.delete()
+        except TelegramError:
+            log.warning("photo_status_delete_failed")
 
 
 async def run_turn(
@@ -158,8 +138,9 @@ async def run_turn(
         await update.message.reply_text(str(exc))
         return
     except TurnFailed:
-        log.exception("Turn failed")
-        await update.message.reply_text("Something went wrong, so nothing was saved. Please resend that.")
+        await update.message.reply_text(
+            "Something went wrong, so nothing was saved. Please resend that."
+        )
         return
     finally:
         typing.cancel()
@@ -200,7 +181,9 @@ async def handle_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         matches = await asyncio.to_thread(find)
     except ToolError:
-        await update.message.reply_text("Search isn't available right now. Please try again shortly.")
+        await update.message.reply_text(
+            "Search isn't available right now. Please try again shortly."
+        )
         return
     if not matches:
         await update.message.reply_text("I couldn't find anything like that.")
@@ -297,7 +280,9 @@ async def handle_quiet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             message = f"Quiet hours are {prefs.quiet_start} to {prefs.quiet_end}."
         else:
             state = f"{prefs.quiet_start} to {prefs.quiet_end}" if prefs.quiet_enabled else "off"
-            await update.message.reply_text(f"Quiet hours: {state}. Use /quiet 22:00 08:00 or /quiet off.")
+            await update.message.reply_text(
+                f"Quiet hours: {state}. Use /quiet 22:00 08:00 or /quiet off."
+            )
             return
         store.save_prefs(prefs)
     await update.message.reply_text(message)
@@ -350,16 +335,20 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     elif action == "delete_all":
         async with context.bot_data["locks"][user_id]:
             context.bot_data["service"].delete_all(telegram_identity(user_id))
+        log.info("memory_erased", user=user_ref(user_id))
         await query.edit_message_text("Everything has been erased.")
     elif action == "forget":
         table, row_id = args[0], int(args[1])
         async with context.bot_data["locks"][user_id]:
             with user_store(context, user_id) as store:
                 forgotten = store.forget(table, row_id)
+        log.info("entry_erased", user=user_ref(user_id), table=table, found=forgotten)
         await query.edit_message_text("Erased." if forgotten else "That entry is already gone.")
     elif action == "fpage":
         if "forget" not in context.user_data:
-            await query.edit_message_text("That list has expired. Please search again with /forget.")
+            await query.edit_message_text(
+                "That list has expired. Please search again with /forget."
+            )
             return
         text, keyboard = forget_page(context, user_id, int(args[0]))
         await query.edit_message_text(text, reply_markup=keyboard)
@@ -374,7 +363,7 @@ async def _handle_reminder_button(query, context, user_id: int, args: list[str])
             store.mark_done(int(value))
             status = "Done."
         elif verb == "snooze":
-            store.snooze(int(value), datetime.now(timezone.utc) + timedelta(days=1))
+            store.snooze(int(value), datetime.now(UTC) + timedelta(days=1))
             status = "Snoozed until tomorrow."
         else:
             store.mute_kind(value)
@@ -418,12 +407,18 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE, user_id: int, now: dat
         )
         with user_store(context, user_id) as store:
             store.mark_sent(reminder["id"])
+        log.info(
+            "reminder_sent",
+            user=user_ref(user_id),
+            kind=reminder["kind"],
+            explicit=bool(reminder["explicit"]),
+        )
     return len(due)
 
 
 async def reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
     service: RecallService = context.bot_data["service"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for user_id in service.users():
         lock = context.bot_data["locks"][user_id]
         if lock.locked():
@@ -432,9 +427,12 @@ async def reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
             async with lock:
                 await deliver_due(context, user_id, now)
         except Forbidden:
-            log.info("A user has blocked the bot, so their reminder stays pending")
+            log.info("reminder_held", reason="bot_blocked", user=user_ref(user_id))
         except TelegramError:
-            log.exception("Couldn't send a reminder. It stays pending and will retry.")
+            log.exception("reminder_send_failed", user=user_ref(user_id))
+        except Exception:
+            # One user's broken memory mustn't stop everyone else's reminders.
+            log.exception("reminder_tick_failed", user=user_ref(user_id))
 
 
 async def nudge_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -447,7 +445,7 @@ async def nudge_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
             async with lock:
                 await asyncio.to_thread(service.scan_nudges, telegram_identity(user_id))
         except Exception:
-            log.exception("A nudge scan failed. Other users still run, and it retries next hour.")
+            log.exception("nudge_scan_failed", user=user_ref(user_id))
 
 
 @allowed_only
@@ -458,13 +456,24 @@ async def handle_nudge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         async with context.bot_data["locks"][user_id]:
             found = await asyncio.to_thread(service.scan_nudges, telegram_identity(user_id), True)
-            sent = await deliver_due(context, user_id, datetime.now(timezone.utc))
+            sent = await deliver_due(context, user_id, datetime.now(UTC))
     finally:
         typing.cancel()
     if not found:
         await update.message.reply_text("Nothing's gone quiet right now.")
     elif not sent:
         await update.message.reply_text("I found something, and I'll send it when it's allowed.")
+
+
+async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if isinstance(context.error, BadRequest) and "not modified" in str(context.error):
+        return  # A double tap on a button that already did its job.
+    log.error("handler_failed", exc_info=context.error)
+    if isinstance(update, Update) and update.effective_message:
+        try:
+            await update.effective_message.reply_text("Something went wrong. Please try again.")
+        except TelegramError:
+            log.warning("error_reply_failed")
 
 
 async def on_start(application: Application) -> None:
@@ -504,6 +513,7 @@ def build_application(settings: Settings) -> Application:
         "unmute": handle_unmute,
     }.items():
         application.add_handler(CommandHandler(command, handler, filters=private))
+    application.add_error_handler(on_error)
     application.add_handler(CallbackQueryHandler(handle_button))
     application.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, handle_text))
     application.add_handler(MessageHandler(private & filters.PHOTO, handle_photo))

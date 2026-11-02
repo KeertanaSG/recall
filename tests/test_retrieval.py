@@ -1,12 +1,16 @@
 import json
+import sqlite3
+from datetime import UTC
 from types import SimpleNamespace
 
 import anthropic
 import httpx
 import pytest
 
-from recall.retrieval import MAX_ATTEMPTS, Retriever, fuse
-from recall.store import ToolError
+from recall.core.retrieval import Retriever, fuse
+from recall.llm.claude import ClaudeLLM
+from recall.storage.base import EmbeddingError
+from recall.storage.store import LocalEmbedder, ToolError
 
 
 def reply(payload, stop_reason="end_turn"):
@@ -59,43 +63,28 @@ def test_fusion_favours_rows_found_by_several_searches():
 
 def test_grading_keeps_only_relevant_rows(notes):
     client = FakeClient(grades=[{"relevant": ["notes#1"]}])
-    result = Retriever(client, "m").search(notes, "lent money")
+    result = Retriever(ClaudeLLM(client), "m").search(notes, "lent money")
     assert [r["row"]["id"] for r in result["results"]] == [1]
     assert result["filtered_for_relevance"] and not result["nothing_relevant"]
 
 
 def test_keywords_find_rows_that_embeddings_miss(notes):
-    client = FakeClient(plan={"queries": [], "keywords": ["arjun"]}, grades=[{"relevant": ["notes#1"]}])
-    result = Retriever(client, "m").search(notes, "unrelated words entirely")
-    assert result["results"][0]["row"]["body"] == "lent Arjun 2000 for tickets"
-
-
-def test_nothing_relevant_retries_with_a_new_angle_then_says_so(notes):
     client = FakeClient(
-        plan={"queries": ["cab"], "keywords": []},
-        grades=[{"relevant": []}, {"relevant": []}],
+        plan={"queries": [], "keywords": ["arjun"]}, grades=[{"relevant": ["notes#1"]}]
     )
-    result = Retriever(client, "m", max_attempts=2).search(notes, "passport number")
-    assert result["nothing_relevant"] and result["results"] == []
-    assert len(client.prompts) == 4
-    assert "Already tried" in client.prompts[2]
+    result = Retriever(ClaudeLLM(client), "m").search(notes, "unrelated words entirely")
+    assert result["results"][0]["row"]["body"] == "lent Arjun 2000 for tickets"
 
 
 def test_default_gives_up_after_one_pass(notes):
     client = FakeClient(grades=[{"relevant": []}])
-    assert Retriever(client, "m").search(notes, "passport number")["nothing_relevant"]
-    assert len(client.prompts) == 2 * MAX_ATTEMPTS
-
-
-def test_a_retry_can_succeed(notes):
-    client = FakeClient(grades=[{"relevant": []}, {"relevant": ["notes#2"]}])
-    result = Retriever(client, "m", max_attempts=2).search(notes, "cab")
-    assert [r["row"]["id"] for r in result["results"]] == [2]
+    assert Retriever(ClaudeLLM(client), "m").search(notes, "passport number")["nothing_relevant"]
+    assert len(client.prompts) == 2
 
 
 def test_invented_keys_from_the_grader_are_ignored(notes):
     client = FakeClient(grades=[{"relevant": ["notes#99", "secrets#1"]}, {"relevant": []}])
-    assert Retriever(client, "m").search(notes, "cab")["results"] == []
+    assert Retriever(ClaudeLLM(client), "m").search(notes, "cab")["results"] == []
 
 
 @pytest.mark.parametrize(
@@ -104,26 +93,32 @@ def test_invented_keys_from_the_grader_are_ignored(notes):
 )
 def test_search_survives_a_failed_grade(notes, failure):
     client = FakeClient(grades=[failure])
-    result = Retriever(client, "m").search(notes, "cab")
+    result = Retriever(ClaudeLLM(client), "m").search(notes, "cab")
     assert result["results"] and not result["filtered_for_relevance"]
 
 
 def test_search_survives_a_failed_plan(notes):
-    client = FakeClient(plan=anthropic.APIConnectionError(request=httpx.Request("POST", "https://x")))
-    assert Retriever(client, "m").search(notes, "cab")["results"]
+    client = FakeClient(
+        plan=anthropic.APIConnectionError(request=httpx.Request("POST", "https://x"))
+    )
+    assert Retriever(ClaudeLLM(client), "m").search(notes, "cab")["results"]
 
 
 def test_search_survives_an_embedding_outage(notes, embedder):
     embedder.failing = True
-    client = FakeClient(plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["notes#2"]}])
-    assert Retriever(client, "m").search(notes, "cab")["results"][0]["row"]["id"] == 2
+    client = FakeClient(
+        plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["notes#2"]}]
+    )
+    assert Retriever(ClaudeLLM(client), "m").search(notes, "cab")["results"][0]["row"]["id"] == 2
 
 
 def test_table_filter_applies_to_both_searches(notes):
     notes.create_table("films", "Films", [{"name": "title", "type": "text"}])
     notes.add_row("films", {"title": "cab movie"})
-    client = FakeClient(plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["films#1"]}])
-    result = Retriever(client, "m").search(notes, "cab", table="films")
+    client = FakeClient(
+        plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["films#1"]}]
+    )
+    result = Retriever(ClaudeLLM(client), "m").search(notes, "cab", table="films")
     assert {r["table"] for r in result["results"]} == {"films"}
     assert "notes#" not in client.prompts[1]
 
@@ -135,9 +130,9 @@ def test_keyword_search_treats_wildcards_literally(notes):
 
 
 def test_keyword_search_covers_reminders(notes):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    notes.add_reminder("send Priya the file", datetime(2026, 12, 1, tzinfo=timezone.utc), "promise", False)
+    notes.add_reminder("send Priya the file", datetime(2026, 12, 1, tzinfo=UTC), "promise", False)
     assert notes.keyword_search(["priya"])[0]["table"] == "_reminders"
 
 
@@ -156,3 +151,23 @@ def test_required_columns_are_enforced(store):
     store.add_column("movies", "genre", "text")
     assert store.get_row("movies", row_id)["genre"] is None
     assert any(c["required"] for c in store.tables()[0]["columns"])
+
+
+def test_a_locked_database_is_a_retryable_tool_error(store):
+    store.create_table("notes", "Notes", [{"name": "body", "type": "text"}])
+    other = sqlite3.connect(store.path)
+    other.execute("BEGIN IMMEDIATE")
+    store.conn.execute("PRAGMA busy_timeout=20")
+    with pytest.raises(ToolError, match="busy"):
+        store.add_row("notes", {"body": "x"})
+    other.rollback()
+    assert store.add_row("notes", {"body": "x"}) == 1
+
+
+def test_a_failed_embedding_load_is_an_embedding_error(tmp_path, monkeypatch):
+    def fails(*_args, **_kwargs):
+        raise OSError("no network")
+
+    monkeypatch.setattr("recall.storage.store.TextEmbedding", fails)
+    with pytest.raises(EmbeddingError):
+        LocalEmbedder(tmp_path).embed(["x"], "query")
