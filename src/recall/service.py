@@ -16,6 +16,7 @@ from recall.agent import Agent, Reply, TurnFailed
 from recall.auth import OWNER, READ, WRITE, Identity, TokenStore
 from recall.config import Settings
 from recall.embeddings import Embedder, LocalEmbedder
+from recall.nudges import Nudger
 from recall.retrieval import hybrid_search
 from recall.store import Store, ToolError, delete_user_data, known_user_ids, user_db_path
 from recall.tools import Tools
@@ -77,12 +78,14 @@ class RecallService:
         stores: StoreProvider,
         agent: Agent,
         limiter: UsageLimiter,
+        nudger: Nudger | None = None,
     ):
         self.settings = settings
         self.tokens = tokens
         self.stores = stores
         self.agent = agent
         self.limiter = limiter
+        self.nudger = nudger
 
     def _record(self, identity: Identity, action: str, outcome: str) -> None:
         if identity.token_id is not None:
@@ -120,11 +123,16 @@ class RecallService:
         """Everyone with saved data who is still allowed, for background work like reminders."""
         return [user_id for user_id in self.stores.user_ids() if self.settings.allows(user_id)]
 
-    def chat(self, identity: Identity, text: str) -> Reply:
+    def chat(self, identity: Identity, text: str, image: bytes | None = None) -> Reply:
         """Run a full turn, which can read and change everything, so it's for the owner only."""
         with self.access(identity, "chat", OWNER) as store:
             self._spend(identity)
-            return self.agent.respond(store, text)
+            return self.agent.respond(store, text, image=image)
+
+    def scan_nudges(self, identity: Identity, force: bool = False) -> list[int]:
+        """Look for unfinished business. Runs at most daily unless forced."""
+        with self.access(identity, "scan for nudges", OWNER) as store:
+            return self.nudger.scan(store, force=force)
 
     def delete_all(self, identity: Identity) -> None:
         self._authorize(identity, "delete everything", OWNER)
@@ -185,16 +193,18 @@ def build_agent(settings: Settings) -> Agent:
 
 
 def build_service(settings: Settings) -> RecallService:
+    agent = build_agent(settings)
     return RecallService(
         settings,
         TokenStore(settings.data_dir / "auth.sqlite"),
         LocalStoreProvider(settings, LocalEmbedder(settings.data_dir / "models")),
-        build_agent(settings),
+        agent,
         UsageLimiter(
             settings.data_dir / "usage.sqlite",
             settings.max_messages_per_user_per_day,
             settings.max_messages_per_day,
         ),
+        Nudger(agent.client, settings.retrieval_model, settings.fast_mode),
     )
 
 

@@ -1,10 +1,18 @@
+import asyncio
+import json
+from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
-from recall.bot import collect_due, reminder_keyboard, split_message
+from recall.bot import collect_due, deliver_due, handle_nudge, handle_photo, reminder_keyboard, split_message
+from recall.agent import Reply
 from recall.config import Settings
+from recall.nudges import Nudger
 from recall.service import LocalStoreProvider, RecallService
 from recall.store import Store, user_db_path
+from recall.usage import Limit
 
 NOON_IST = datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc)
 
@@ -46,6 +54,59 @@ def test_collect_due_retries_failed_embeddings(tmp_path, embedder):
     collect_due(service, 1, NOON_IST)
     with Store(user_db_path(tmp_path, 1), embedder, "Asia/Kolkata") as store:
         assert store.search("ferry")[0]["row"]["body"] == "ferry"
+
+
+def fake_chat(service, **message):
+    message = SimpleNamespace(
+        chat=SimpleNamespace(send_action=AsyncMock()), reply_text=AsyncMock(), **message
+    )
+    update = SimpleNamespace(effective_user=SimpleNamespace(id=1), message=message)
+    data = {"settings": service.settings, "service": service, "locks": defaultdict(asyncio.Lock)}
+    return update, SimpleNamespace(bot_data=data, bot=SimpleNamespace(send_message=AsyncMock()))
+
+
+def test_photo_goes_through_the_service_with_its_caption(tmp_path, embedder):
+    service = make_service(tmp_path, embedder)
+    seen = {}
+
+    def respond(store, text, image=None):
+        seen.update(text=text, image=image)
+        return Reply("Saved.")
+
+    service.agent = SimpleNamespace(respond=respond)
+    service.limiter = SimpleNamespace(spend=lambda _user: Limit.NONE)
+    file = SimpleNamespace(download_as_bytearray=AsyncMock(return_value=bytearray(b"jpeg")))
+    small = SimpleNamespace(get_file=AsyncMock())
+    large = SimpleNamespace(get_file=AsyncMock(return_value=file))
+    update, context = fake_chat(service, photo=[small, large], caption="lunch")
+    asyncio.run(handle_photo(update, context))
+    assert seen == {"text": "[photo] lunch", "image": b"jpeg"}
+    small.get_file.assert_not_called()
+    update.message.reply_text.assert_awaited_once_with("Saved.")
+
+
+def test_nudge_runs_from_scan_to_a_sent_message_with_stop_button(tmp_path, embedder):
+    service = make_service(tmp_path, embedder)
+    with service.stores.open(1) as store:
+        store.create_table("loans", "Loans", [{"name": "person", "type": "text"}])
+        row_id = store.add_row("loans", {"person": "Arjun"})
+        saved = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
+        store.conn.execute("UPDATE loans SET created_at = ? WHERE id = ?", (saved, row_id))
+    verdict = json.dumps({"nudges": [{"key": "loans#1", "message": "Arjun owes you.", "importance": 3}]})
+    response = SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=verdict)])
+    client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **_: response)))
+    service.nudger = Nudger(client, "haiku")
+    with service.stores.open(1) as store:
+        prefs = store.prefs()
+        prefs.quiet_enabled = False
+        store.save_prefs(prefs)
+
+    update, context = fake_chat(service)
+    asyncio.run(handle_nudge(update, context))
+    (user_id, text), kwargs = context.bot.send_message.await_args
+    assert user_id == 1 and text.startswith("Arjun owes you.\n\nFrom your notes\nArjun")
+    assert kwargs["reply_markup"].inline_keyboard[1][0].text == "Stop nudge reminders"
+    assert asyncio.run(deliver_due(context, 1, datetime.now(timezone.utc))) == 0
 
 
 def test_keyboard_only_offers_stop_on_proactive_reminders():

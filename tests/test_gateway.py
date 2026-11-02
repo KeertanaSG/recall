@@ -18,7 +18,7 @@ NOW = datetime(2026, 11, 2, tzinfo=timezone.utc)
 @pytest.fixture
 def agent():
     return SimpleNamespace(
-        respond=lambda store, text: f"Replied to {text}",
+        respond=lambda store, text, image=None: f"Replied to {text}",
         capture=lambda store, text: ["notes#2"],
     )
 

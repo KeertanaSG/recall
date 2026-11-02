@@ -19,7 +19,7 @@ import anthropic
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
-from recall.llm import create_message
+from recall.llm import ask_json
 from recall.store import Store, ToolError
 
 log = logging.getLogger(__name__)
@@ -185,28 +185,4 @@ class Retriever:
         return "retry"
 
     def _ask(self, system: str, prompt: str, schema: dict) -> dict | None:
-        try:
-            response = create_message(
-                self.client,
-                self.model,
-                self.fast,
-                max_tokens=4000,
-                system=system,
-                messages=[{"role": "user", "content": prompt}],
-                output_config={
-                    "effort": "low",
-                    "format": {"type": "json_schema", "schema": schema},
-                },
-            )
-        except anthropic.APIError:
-            log.exception("A retrieval step failed, continuing without it")
-            return None
-        if response.stop_reason != "end_turn":
-            log.warning("A retrieval step stopped early: %s", response.stop_reason)
-            return None
-        text = "".join(block.text for block in response.content if block.type == "text")
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError:
-            log.warning("A retrieval step returned invalid JSON")
-            return None
+        return ask_json(self.client, self.model, self.fast, system, prompt, schema)
