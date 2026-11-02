@@ -135,6 +135,12 @@ def test_remember_counts_against_daily_limit(service, writer):
         service.remember(identity, "c")
 
 
+def test_about_finds_a_name_only_as_a_whole_word(service, reader):
+    identity = service.tokens.verify(reader)
+    assert [r["row"]["id"] for r in service.about(identity, "secret")] == [1]
+    assert service.about(identity, "secre") == []
+
+
 def test_audit_records_actions_but_never_memory_text(service, writer):
     identity = service.tokens.verify(writer)
     service.remember(identity, "zebra private note")
@@ -152,7 +158,7 @@ def test_reminder_needs_write_and_appears_in_the_list(service, writer):
 def test_every_data_route_requires_a_token(client):
     calls = [
         ("post", "/v1/search", {"text": "x"}), ("post", "/v1/query", {"sql": "SELECT 1"}),
-        ("get", "/v1/tables", None), ("get", "/v1/entries/notes/1", None), ("get", "/v1/reminders", None),
+        ("get", "/v1/tables", None), ("get", "/v1/about/x", None), ("get", "/v1/entries/notes/1", None), ("get", "/v1/reminders", None),
         ("post", "/v1/reminders", {"text": "x", "remind_at": "2030-01-01T09:00"}),
         ("post", "/v1/remember", {"text": "x"}),
     ]
@@ -192,7 +198,7 @@ def test_mcp_tools_have_no_delete_and_label_reads(service, reader, monkeypatch):
         return names, await server.call_tool("list_tables", {})
 
     names, result = asyncio.run(run())
-    assert names == {"search_memory", "query_memory", "list_tables", "get_entry", "list_reminders", "remember", "set_reminder"}
+    assert names == {"about", "search_memory", "query_memory", "list_tables", "get_entry", "list_reminders", "remember", "set_reminder"}
     assert "saved data" in str(result)
 
 

@@ -123,6 +123,18 @@ TOOLS: list[dict] = [
         },
     },
     {
+        "name": "about",
+        "description": (
+            "Get every entry that names a person, place or thing, across all tables. Use this "
+            "when the user asks about one as a whole, such as 'tell me about Arjun'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {"name": {"type": "string", "description": "Just the name, like Arjun."}},
+            "required": ["name"],
+        },
+    },
+    {
         "name": "set_reminder",
         "description": (
             "Schedule a reminder. remind_at is local time as YYYY-MM-DDTHH:MM. Set explicit=true "
@@ -215,6 +227,9 @@ class Tools:
 
     def _search(self, text: str, table: str | None = None, limit: int = 8) -> dict:
         return self.retriever.search(self.store, text, table, min(max(limit, 1), 20))
+
+    def _about(self, name: str) -> list[dict]:
+        return self.store.mentions(name)
 
     def _set_reminder(
         self,

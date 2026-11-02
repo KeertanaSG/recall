@@ -143,6 +143,11 @@ class RecallService:
         with self.access(identity, "search", READ) as store:
             return hybrid_search(store, text, min(max(limit, 1), 20), table)
 
+    def about(self, identity: Identity, name: str) -> list[dict]:
+        """Everything that mentions a person, place or thing, across all tables."""
+        with self.access(identity, "about", READ) as store:
+            return store.mentions(name)
+
     def query(self, identity: Identity, sql: str) -> dict:
         with self.access(identity, "query", READ) as store:
             return store.read_query(sql)
@@ -189,6 +194,7 @@ def build_agent(settings: Settings) -> Agent:
         settings.fast_mode,
         settings.retrieval_model,
         settings.design_model,
+        settings.prefetch,
     )
 
 

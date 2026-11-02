@@ -645,8 +645,26 @@ class Store:
                 )
         return results[:limit]
 
+    def mentions(self, name: str, limit: int = 40) -> list[dict]:
+        """Every entry that names something as a whole word, so Sam doesn't match sample.
+
+        Each comes with its table's purpose and the user's own words, which show who owes whom.
+        """
+        purposes = {table["name"]: table["description"] for table in self.tables()}
+        results = []
+        for result in self.keyword_search([name], limit, whole_word=True):
+            full = self.get_row(result["table"], result["row"]["id"]) or {}
+            results.append(
+                {
+                    **result,
+                    "about": purposes.get(result["table"], ""),
+                    "said": full.get("source_text", ""),
+                }
+            )
+        return results
+
     def keyword_search(
-        self, terms: list[str], limit: int = 15, table: str | None = None
+        self, terms: list[str], limit: int = 15, table: str | None = None, whole_word: bool = False
     ) -> list[dict]:
         """Find literal words, which embeddings can miss, such as names."""
         patterns = [
@@ -671,8 +689,11 @@ class Store:
             )
             rows = self.conn.execute(
                 f"SELECT * FROM {quote_identifier(name)} WHERE {clause} ORDER BY id DESC LIMIT ?",
-                (*(pattern for _ in columns for pattern in patterns), limit),
+                (*(pattern for _ in columns for pattern in patterns), limit * 5 if whole_word else limit),
             ).fetchall()
+            if whole_word:
+                words = re.compile("|".join(rf"\b{re.escape(term)}\b" for term in terms), re.I)
+                rows = [row for row in rows if any(words.search(str(value)) for value in dict(row).values())]
             results.extend({"table": name, "row": self._public_row(row)} for row in rows)
         return results[:limit]
 

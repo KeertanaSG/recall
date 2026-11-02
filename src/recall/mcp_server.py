@@ -93,6 +93,11 @@ def create_server(service: RecallService, settings: Settings, http: bool = False
         return await call(service.search, text, table, limit)
 
     @server.tool(annotations=READ_ONLY)
+    async def about(name: str) -> dict:
+        """Get every entry that names a person, place or thing, across all tables."""
+        return await call(service.about, name)
+
+    @server.tool(annotations=READ_ONLY)
     async def query_memory(sql: str) -> dict:
         """Run one read-only SQLite SELECT. Use it for exact totals, counts and filters."""
         return await call(service.query, sql)
