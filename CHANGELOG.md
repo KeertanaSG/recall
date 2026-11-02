@@ -5,7 +5,12 @@ so everything is version 0.1.0.
 
 ## 2026-11-02
 
-### MCP from anywhere
+### Every-feature eval
+
+- Added `evals/run_messages.py` and a dataset of 430 cases covering every feature. The latest run
+  passed 427.
+
+### MCP from anywhere (#13)
 
 - MCP over HTTP now accepts `RECALL_MCP_PUBLIC_URL` as a host, so it can run behind a tunnel. All
   other hosts and origins are refused.

@@ -236,9 +236,52 @@ alarm teaches someone to mute Recall.
 uv run python evals/run_retrieval.py --agent
 uv run python evals/compare.py
 uv run python evals/run_nudges.py
+uv run python evals/run_messages.py
 ```
 
 These call the Anthropic API and need a filled-in `.env`.
+
+**Every feature:** `evals/run_messages.py` sends 430 synthetic cases through the real service, each
+with a fresh memory, so one failure can't cause another. The dataset is in
+[`evals/messages.py`](evals/messages.py), and adding a case takes one line.
+
+| Feature | Passed |
+| --- | --- |
+| Money formats, like `1.5k`, `2 lakh` and `₹1,50,000` | 89/89 |
+| Saving anything, including typos and long messages | 35/36 |
+| Hostile text, like SQL and fake system messages | 28/28 |
+| Bot commands with good, missing and bad arguments | 28/28 |
+| Exact answers | 26/26 |
+| Small talk and noise, which should save nothing | 25/25 |
+| Vague questions | 23/24 |
+| Reminders and dates | 22/22 |
+| Person briefs | 20/20 |
+| Questions about things never saved | 20/20 |
+| Corrections | 18/18 |
+| Token permissions | 17/17 |
+| New tables and reusing existing ones | 15/16 |
+| `remember` from other apps | 12/12 |
+| Crisis and advice messages | 9/9 |
+| Other languages, which must not crash | 8/8 |
+| Nudges | 6/6 |
+| Photos, including unreadable ones | 6/6 |
+| Passwords, card numbers and medical details | 5/5 |
+| Undo | 5/5 |
+| Forget | 5/5 |
+| Several messages at once | 3/3 |
+| Export | 2/2 |
+| **Total** | **427/430** |
+
+These 3 cases are left failing on purpose, because each one shows a real gap:
+
+- "Which film made me cry?" finds nothing, because those words are only in the original message and
+  the model doesn't see that text.
+- "Slept 4 hours last night, felt awful" gets a kind reply but isn't saved.
+- "Tomatoes on the balcony have sprouted" goes into an existing table instead of a new one.
+
+These are results from one run. Some answers change between runs, and most checks look for key
+facts, not whether the whole reply reads well. Each run adds its failures to
+[`evals/results/messages.jsonl`](evals/results/messages.jsonl).
 
 **Prompt injection:** `evals/run_injection.py` hides orders in notes, names, a photo, `remember` text
 and the nudge judge's input. All 9 attacks were resisted on real Claude, with no data changed. This
@@ -350,7 +393,9 @@ records.
 ## Limitations
 
 - Evals use synthetic data, and photo capture has mostly been tested on a generated receipt.
-- A save that creates a new table can take 10 to 20 seconds.
+- A save that creates a new table can take 10 to 20 seconds, and took up to 46 seconds with 8 cases
+  running at once.
+- Details said only in the original message can't be searched for, like why you liked something.
 - English only.
 - It runs locally. The HTTP API needs HTTPS in front before it's exposed, and the MCP tunnel only
   works while the Mac is on.
