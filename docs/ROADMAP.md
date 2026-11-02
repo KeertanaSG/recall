@@ -4,7 +4,7 @@ Last updated: 2026-11-02
 
 ## Summary
 
-Recall's next milestone is a portfolio version in about 6 weeks of focused work: a solid core, four
+Recall's next milestone is a portfolio version in about 6 weeks of focused work: a solid core, three
 demo features, trained models, and proven results. It is a Telegram memory that saves anything you text it, answers
 with sources, and speaks up before you forget.
 
@@ -28,7 +28,7 @@ The targets are proposals, and the 95% figure should be confirmed after the firs
 
 ## Built today
 
-The core product exists and has 132 passing automated tests, but it has not yet run on live
+The core product exists and has 162 passing automated tests, but it has not yet run on live
 Telegram.
 
 | Feature | What it does | Tested with |
@@ -44,14 +44,19 @@ Telegram.
 | Personal patterns | Remembers what helps in a mood or situation, and brings it up later | Real Claude, sample messages |
 | Controls | `/undo`, `/forget`, `/export`, `/delete_all`, quiet hours, pause | Automated tests for storage, not the Telegram commands |
 | Natural replies | Sounds like a friend texting back | Real Claude, 57 replies including unseen messages |
-| Daily limits | Caps messages per user and in total | Automated tests |
+| Daily limits | Caps messages per user and in total, across all processes | Automated tests |
+| One service layer | The bot, API and MCP server all reach memory through `RecallService` | Automated tests |
+| API tokens | Hashed tokens with read and write scopes, expiry, revocation and an audit log | Automated tests, local end-to-end run |
+| HTTP API | Search, read-only SQL, entries, reminders and saving, on localhost | Automated tests, local end-to-end run |
+| MCP server | Seven tools over stdio or HTTP, with no delete tool | Automated tests, local end-to-end run |
+| Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
 
 Search-first retrieval also exists, but stays off until irrelevant sources on nothing-found replies
 are fixed.
 
 ## Demo features
 
-Four features make the demo, because each shows something a chat assistant with memory doesn't do by
+Three features make the demo, because each shows something a chat assistant with memory doesn't do by
 default. None of them are built yet. Efforts are rough estimates.
 
 | Feature | Demo moment | Shows | Effort |
@@ -59,9 +64,8 @@ default. None of them are built yet. Efforts are rough estimates.
 | Smart nudges | Recall messages first: "Arjun still owes you ₹2000 from last month" | Proactive | 2 to 3 days |
 | Person brief | "Tell me about Arjun" connects a loan, a movie and a promise, with sources | Connected and inspectable | 2 days |
 | Photo capture | Send a receipt, and the items and total become real rows | Effortless capture | 1 to 2 days |
-| Local MCP server | Ask Claude Code what you promised someone, using the same memory | One memory for every AI tool | 1 day |
 
-The first three form the one-minute demo: send a receipt, ask about a person, then watch Recall
+Together they form the one-minute demo: send a receipt, ask about a person, then watch Recall
 speak up on its own.
 
 ## Roadmap
@@ -73,7 +77,7 @@ Recall.
 ```mermaid
 flowchart LR
     P0["Phase 0: Solid core<br/>3 to 4 days<br/>Gate: works on live Telegram"]
-    P1["Phase 1: Demo features<br/>About 7 days<br/>Gate: one-minute demo runs"]
+    P1["Phase 1: Demo features<br/>About 6 days<br/>Gate: one-minute demo runs"]
     P2["Phase 2: Effortless use<br/>About 7 days, optional<br/>Gate: no typed commands needed"]
     P3["Phase 3: Proof and ML<br/>About 18 days of work<br/>Gate: evals meet the targets"]
     P4["Phase 4: Depth<br/>About 2 weeks<br/>Gate: people keep using it"]
@@ -104,7 +108,6 @@ estimates.
 | 1 | Smart nudges | Accuracy | Finds open items that have gone quiet in any table | 2 to 3 days |
 | 1 | Person brief | Accuracy | Gathers a name across all tables | 2 days |
 | 1 | Photo capture | Speed | Images go through the same saving tools as text | 1 to 2 days |
-| 1 | Local MCP server | Scale | Exposes existing search and saving, with no delete tool | 1 day |
 | 2 | Natural commands | Speed | Agent tools for undo, settings and forget, with deletes needing a tap | 2 days |
 | 2 | Charts | Accuracy | Plots SQL results from any table | 1 to 2 days |
 | 2 | Voice notes | Speed | Speech becomes a normal message | 1 to 2 days |
@@ -127,6 +130,24 @@ estimates.
 | 5 | Alerts and cost per user | Cost | Makes problems and spending visible | 1 day |
 | 5 | Privacy policy and disk encryption | Scale | Prepares for users who don't know the operator | 1 day |
 | 5 | Central reminder index | Scale | Opens only the files with a reminder due | 1 day |
+| 5 | SQLCipher, once tested with `sqlite-vec` | Scale | Encrypts every user's file, with keys kept off the data disk | 2 to 3 days |
+
+## Hardening plan
+
+This work makes Recall secure, scalable, modular, cheap and accurate, alongside the phases above.
+Efforts are rough estimates.
+
+| Step | Work | Effort | Status |
+| --- | --- | --- | --- |
+| 1 | Fix the base: add-only `remember`, limits across processes, one service layer | 2 days | Done |
+| 2 | Prove it: live Telegram test, concurrent write test, injection and cross-user tests | 3 days | Next |
+| 3 | Faster and cheaper: search-first, one shared embedding service, cost per user | 3 days | Planned |
+| 4 | Accuracy: subject evals, retrieval metrics, a larger test set, checked crisis numbers | 5 days | Planned |
+| 5 | Deploy securely: disk encryption, HTTPS, encrypted backups, alerts | 3 days | Planned |
+| 6 | Scale to 100 users: Phase 5 items, OAuth for remote MCP, a load test | 3 days | Waits for real users |
+
+Rate limits apply per token for now. A per-user limit was left out on purpose, so a user with several
+tokens gets the limit on each one.
 
 ## ML projects
 
