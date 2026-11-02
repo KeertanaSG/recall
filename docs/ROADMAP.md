@@ -53,18 +53,17 @@ passed on 2026-11-02.
 | Photo capture | Turns a photo into rows, with each receipt item saved separately. The photo is never stored | Real Claude with a generated receipt, automated tests |
 | Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
 
-Search-first retrieval also exists, but stays off until irrelevant sources on nothing-found replies
-are fixed.
+Search-first retrieval is on by default, and scored 24/24 and 9/10 with a 2.8 second median.
 
 ## Demo features
 
 Three features make the demo, because each shows something a chat assistant with memory doesn't do by
-default. Smart nudges and photo capture are built. Efforts are rough estimates.
+default. Smart nudges, photo capture and person briefs are built. Efforts are rough estimates.
 
 | Feature | Demo moment | Shows | Effort |
 | --- | --- | --- | --- |
 | Smart nudges | Recall messages first: "Arjun still owes you ₹2000 from last month" | Proactive | 2 to 3 days |
-| Person brief | "Tell me about Arjun" connects a loan, a movie and a promise, with sources | Connected and inspectable | 2 days |
+| Person brief | "Tell me about Arjun" connects a loan, a movie and a fact, with sources | Connected and inspectable | 2 days |
 | Photo capture | Send a receipt, and the items and total become real rows | Effortless capture | 1 to 2 days |
 
 Together they form the one-minute demo: send a receipt, ask about a person, then watch Recall
@@ -103,14 +102,14 @@ estimates.
 | Phase | Item | Goal served | How it stays general | Effort |
 | --- | --- | --- | --- | --- |
 | 0 | Live Telegram test (done 2026-11-02) | Accuracy | Tests every flow in real chats | 1 day |
-| 0 | Search-first on by default | Speed, cost | Runs free local search before any model call | 1 day |
+| 0 | Search-first on by default (done) | Speed, cost | Runs free local search before any model call | 1 day |
 | 0 | Bot command and button tests | Accuracy | Covers all handlers | 1 day |
 | 0 | Safe failure replies | Accuracy | Every failed turn gets a useful reply | Half a day |
-| 0 | `/forget` at scale | Accuracy | Uses hybrid search, drops weak matches, shows dates, and pages through results in any table | 1 day |
-| 0 | Short source summaries | Speed | When "From your notes" gets too long, any answer shows a summary instead of the full list | Half a day |
+| 0 | `/forget` at scale (done) | Accuracy | Uses hybrid search, drops weak matches, shows dates, and pages through results in any table | 1 day |
+| 0 | Short source summaries (done) | Speed | When "From your notes" gets too long, any answer shows a summary instead of the full list | Half a day |
 | 0 | Deploy to a small server | Scale | Reminders stop depending on a laptop | Half a day |
 | 1 | Smart nudges (done) | Accuracy | Finds open items that have gone quiet in any table | 2 to 3 days |
-| 1 | Person brief | Accuracy | Gathers a name across all tables | 2 days |
+| 1 | Person brief (done) | Accuracy | Gathers a name across all tables | 2 days |
 | 1 | Photo capture (done) | Speed | Images go through the same saving tools as text | 1 to 2 days |
 | 2 | Natural commands | Speed | Agent tools for undo, settings and forget, with deletes needing a tap | 2 days |
 | 2 | Bulk forget | Accuracy | "Forget all cabs from March" shows a count and a preview, then needs a tap | 1 day |
