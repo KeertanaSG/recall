@@ -178,13 +178,7 @@ async def handle_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         with user_store(context, update.effective_user.id) as store:
             return find_entries(store, words, FORGET_MATCHES)
 
-    try:
-        matches = await asyncio.to_thread(find)
-    except ToolError:
-        await update.message.reply_text(
-            "Search isn't available right now. Please try again shortly."
-        )
-        return
+    matches = await asyncio.to_thread(find)
     if not matches:
         await update.message.reply_text("I couldn't find anything like that.")
         return
