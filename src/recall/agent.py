@@ -13,7 +13,7 @@ from recall.llm import create_message
 from recall.retrieval import Retriever, hybrid_search, result_key
 from recall.schema_design import TableDesigner
 from recall.store import ROW_METADATA, Store, ToolError
-from recall.tools import TOOLS, Tools
+from recall.tools import ADD_ONLY_TOOLS, Tools
 
 log = logging.getLogger(__name__)
 
@@ -119,6 +119,11 @@ These pairs show the style. They're illustrations, so never copy their wording:
 "actually the plumber was 900" -> Plumber's now ₹900.
 "read Circe, 8/10" -> Circe, 8 out of 10.
 """
+
+CAPTURE_NOTE = """\
+This message came from another app, not the Telegram chat, and here you can only add to memory. \
+Save what it says as new entries, using the listed tables when they fit. You can't see saved \
+entries, change them or answer questions, so if there's nothing new to save, save nothing."""
 
 
 class TurnFailed(Exception):
@@ -242,30 +247,46 @@ class Agent:
             *store.recent_messages(),
             {"role": "user", "content": f"<context>\n{context}\n</context>\n\n{text}"},
         ]
-        try:
-            final = self._run(messages, tools)
-        except (anthropic.APIError, TurnFailed) as exc:
-            if store.turn_id is not None:
-                store.undo(store.turn_id)
-            raise TurnFailed(str(exc)) from exc
-
+        final = self._attempt(store, messages, tools)
         clean, sources = resolve_citations(final, store)
         if store.turn_id is not None:
             sources = []  # A save confirms itself, so a source list would just repeat it.
         store.log_exchange(text, clean)
         return Reply(clean, sources)
 
-    def _run(self, messages: list[dict], tools: Tools) -> str:
+    def capture(self, store: Store, text: str, now: datetime | None = None) -> list[str]:
+        """Save a message from another app, and return what was added.
+
+        Whoever calls this may only hold write access, so the turn can't read saved entries or
+        the chat, can't change anything already saved, and its reply is never returned. It stays
+        out of the chat history too, so outside text is never replayed as something the user said.
+        """
+        now = now or datetime.now(timezone.utc)
+        tools = Tools(store, text, now, None, self.designer, ADD_ONLY_TOOLS)
+        content = f"<context>\n{message_context(store, now)}\n</context>\n\n{text}"
+        self._attempt(store, [{"role": "user", "content": content}], tools, CAPTURE_NOTE)
+        return tools.saved
+
+    def _attempt(self, store: Store, messages: list[dict], tools: Tools, note: str = "") -> str:
+        try:
+            return self._run(messages, tools, note)
+        except (anthropic.APIError, TurnFailed) as exc:
+            if store.turn_id is not None:
+                store.undo(store.turn_id)
+            raise TurnFailed(str(exc)) from exc
+
+    def _run(self, messages: list[dict], tools: Tools, note: str = "") -> str:
+        system = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
+        if note:
+            system.append({"type": "text", "text": note})
         for _ in range(MAX_STEPS):
             response = create_message(
                 self.client,
                 self.model,
                 self.fast,
                 max_tokens=16000,
-                system=[
-                    {"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}
-                ],
-                tools=TOOLS,
+                system=system,
+                tools=tools.schemas,
                 messages=messages,
                 output_config={"effort": self.effort},
             )

@@ -114,7 +114,7 @@ def create_server(service: RecallService, settings: Settings, http: bool = False
 
     @server.tool(annotations=ADDITIVE)
     async def remember(text: str) -> dict:
-        """Save something the user wants remembered, written as they'd say it."""
+        """Save something new, written as the user would say it. Returns only the new entry IDs."""
         return await call(service.remember, text)
 
     @server.tool(annotations=ADDITIVE)
