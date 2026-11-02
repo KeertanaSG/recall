@@ -20,7 +20,7 @@ run over 10 seconds, and real use and scale are not yet proven.
 | Goal | Target | Today | How we get there |
 | --- | --- | --- | --- |
 | Accuracy | At least 95% on realistic evals, by subject | 24/24 answerable and 9/10 nothing-saved with search-first, on synthetic data | Subject-by-subject evals, graded retrieval, citations read from the database |
-| Speed | Saves under 10 seconds, answers under 5 seconds | 2.8 second median answer; saves 1.9 to 5.2 seconds, up to about 20 with a new table | Search-first retrieval, which cut the median from about 4.8 seconds |
+| Speed | Saves under 10 seconds, answers under 5 seconds | 2.8 to 3.9 second median answer, depending on API load; saves 1.9 to 5.2 seconds, up to about 20 with a new table | Search-first retrieval, which cut the median from about 4.8 seconds |
 | Cost | Under 0.1 cents per message | About 0.06 cents per question | Haiku for most steps, Opus only for table design, local embeddings |
 | Scale | 100 users on one server, with a path to 1,000 | Estimated $16 a month in model costs at 100 users, untested | One file per user, then the Phase 5 fixes |
 
@@ -57,7 +57,7 @@ passed on 2026-11-02.
 | Structured logs | JSON events per process with turn IDs, timings and token totals, and no memory text | Real Claude across all three processes, automated tests |
 | Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
 
-Search-first retrieval is on by default, and scored 24/24 and 9/10 with a 2.8 second median. Crisis
+Search-first retrieval is on by default, and scored 24/24 and 9/10 or better. Crisis
 replies point to trusted people and local services, and never include a phone number the model
 can't check.
 
@@ -181,6 +181,7 @@ These stay parked until real use shows they're worth the cost.
 | Recommendations from history | Only useful once histories are long |
 | Google Calendar and Gmail import | Adds privacy and approval work |
 | Other languages | English only is the current decision |
+| LiteLLM | Tested with equal accuracy, but about 0.9 seconds slower, and its PyPI package was compromised twice in 2026 |
 | Cheaper or open models | Haiku is already close to the cheapest, and a local Qwen3 test was much slower |
 | WhatsApp or iMessage | WhatsApp policy and fees, and no official iMessage bot API |
 | Shared memories | Non-goal in the PRD |

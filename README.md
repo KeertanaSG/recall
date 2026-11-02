@@ -151,7 +151,9 @@ Both evals use synthetic data with real Claude calls, and results are saved in
 | Recall's hybrid search, 2 runs | 47/48 | 18/20 |
 | Hybrid with local search first, the default | 24/24 | 9/10 |
 
-Searching locally before the first model call cut the median answer from about 4.8 seconds to 2.8.
+Searching locally before the first model call also cuts model steps. The default setup answered in
+a median of 2.8 seconds in one run and 3.9 in a busier hour, because API speed changes through the
+day. Compare runs from the same hour.
 Plain vector search and the first hybrid row come from earlier runs, and all of these used about
 0.06 cents per question or less.
 
@@ -185,6 +187,7 @@ is one run of a small set, so it shows the defences work, not that they're unbre
 | Haiku for most steps, Opus only for table design | Tables outlive the message that created them, and everything else needs to be cheap | Saves that create a table are slower |
 | One SQLite file per user | Free, fast, strong isolation, and `/export` and delete stay simple | Limited to one server. `MemoryStore` keeps a move to Postgres contained |
 | Interfaces only where swapping is realistic | The LLM, embedder, storage and channels can change without touching product logic | A little more code, and only one real implementation of each so far |
+| The Claude SDK over LiteLLM | LiteLLM matched its accuracy, but answers were about 0.9 seconds slower in a same-hour test, and its PyPI package was compromised twice in 2026 | Changing provider means writing a new `LLM` class |
 | Local embeddings | No API cost, and note text isn't sent to an embedding provider | Adds memory use to each process |
 | Hosted models over a local LLM | A local Qwen3 benchmark stalled for hours | Message text goes to Anthropic |
 | No delete tool for the agent | Text inside a saved note can't trigger a delete, because deleting takes a tap | Bulk delete needs its own flow |
