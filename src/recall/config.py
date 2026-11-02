@@ -26,6 +26,7 @@ class Settings:
     max_reminders_per_day: int = 5
     max_messages_per_user_per_day: int = 30
     max_messages_per_day: int = 300
+    prefetch: bool = True
     api_requests_per_minute: int = 60
     api_port: int = 8787
     mcp_port: int = 8788
@@ -59,6 +60,7 @@ class Settings:
                 os.environ.get("RECALL_MAX_MESSAGES_PER_USER_PER_DAY", "30")
             ),
             max_messages_per_day=int(os.environ.get("RECALL_MAX_MESSAGES_PER_DAY", "300")),
+            prefetch=os.environ.get("RECALL_PREFETCH", "true").lower() == "true",
             api_requests_per_minute=int(os.environ.get("RECALL_API_REQUESTS_PER_MINUTE", "60")),
             api_port=int(os.environ.get("RECALL_API_PORT", "8787")),
             mcp_port=int(os.environ.get("RECALL_MCP_PORT", "8788")),
