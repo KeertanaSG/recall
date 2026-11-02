@@ -768,6 +768,13 @@ class Store:
         with self._transaction():
             self._update(REMINDERS, reminder_id, {"status": "cancelled"}, reason)
 
+    def pending_reminders(self) -> list[dict]:
+        rows = self.conn.execute(
+            f"""SELECT id, text, remind_at, kind, explicit, linked_table, linked_id
+                FROM {REMINDERS} WHERE status = 'pending' ORDER BY remind_at, id"""
+        ).fetchall()
+        return [dict(row) for row in rows]
+
     def due_reminders(self, now: datetime) -> list[dict]:
         rows = self.conn.execute(
             f"""SELECT * FROM {REMINDERS} WHERE status = 'pending' AND remind_at <= ?

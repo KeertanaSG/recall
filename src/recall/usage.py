@@ -1,6 +1,7 @@
 """Daily message limits, which cap what an open bot can spend on the Anthropic API."""
 
 import sqlite3
+import threading
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -19,7 +20,8 @@ class UsageLimiter:
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         self.per_user = per_user
         self.total = total
-        self.conn = sqlite3.connect(path, isolation_level=None)
+        self.lock = threading.Lock()
+        self.conn = sqlite3.connect(path, isolation_level=None, check_same_thread=False, timeout=10)
         self.conn.execute(
             """CREATE TABLE IF NOT EXISTS usage (
                 day TEXT NOT NULL, user_id INTEGER NOT NULL, messages INTEGER NOT NULL,
@@ -28,6 +30,13 @@ class UsageLimiter:
 
     def spend(self, user_id: int, now: datetime | None = None) -> Limit:
         """Record one message, unless a limit has been reached."""
+        # The bot, API and MCP server each have a connection, so the check and the count must
+        # share one write transaction, or together they could spend past the limit.
+        with self.lock, self.conn:
+            self.conn.execute("BEGIN IMMEDIATE")
+            return self._spend(user_id, now)
+
+    def _spend(self, user_id: int, now: datetime | None) -> Limit:
         day = (now or datetime.now(timezone.utc)).date().isoformat()
         self.conn.execute("DELETE FROM usage WHERE day < ?", (day,))
         total = self.conn.execute(

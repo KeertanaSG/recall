@@ -6,20 +6,29 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "anthropic>=1.0",
+    "fastapi>=0.162.0",
     "fastembed>=0.9.1",
     "langchain-core>=1.7.3",
     "langgraph>=1.2.19",
+    "mcp>=2.3.0",
     "python-dotenv>=1.0",
     "python-telegram-bot[job-queue]>=21.6",
     "sqlite-vec>=0.1.6",
     "tzdata>=2024.1",
+    "uvicorn>=0.54.0",
 ]
 
 [project.scripts]
 recall = "recall.__main__:main"
+recall-api = "recall.api:main"
+recall-mcp = "recall.mcp_server:main"
+recall-tokens = "recall.token_cli:main"
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "httpx>=0.28.1",
+    "pytest>=8",
+]
 
 [build-system]
 requires = ["hatchling"]

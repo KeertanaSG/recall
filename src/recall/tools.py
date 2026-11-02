@@ -10,6 +10,7 @@ from recall.schema_design import TableDesigner
 from recall.store import COLUMN_TYPES, Store, ToolError
 
 REMINDER_KINDS = ["deadline", "promise", "follow_up", "other"]
+ADD_ONLY_TOOLS = frozenset({"create_table", "add_column", "add_row", "set_reminder"})
 
 TOOLS: list[dict] = [
     {
@@ -166,17 +167,20 @@ class Tools:
         now: datetime,
         retriever: Retriever | None,
         designer: TableDesigner | None,
+        allowed: frozenset[str] | None = None,
     ):
         self.store = store
         self.source_text = source_text
         self.now = now
         self.retriever = retriever
         self.designer = designer
+        self.schemas = [tool for tool in TOOLS if allowed is None or tool["name"] in allowed]
         self.last_saved: tuple[str, int] | None = None
+        self.saved: list[str] = []
 
     def run(self, name: str, tool_input: dict[str, Any]) -> str:
         handler = getattr(self, f"_{name}", None)
-        if handler is None:
+        if handler is None or not any(tool["name"] == name for tool in self.schemas):
             raise ToolError(f"Unknown tool {name!r}.")
         try:
             return json.dumps(handler(**tool_input), ensure_ascii=False, default=str)
@@ -196,6 +200,7 @@ class Tools:
     def _add_row(self, table: str, values: dict) -> dict:
         row_id = self.store.add_row(table, values, self.source_text)
         self.last_saved = (table, row_id)
+        self.saved.append(f"{table}#{row_id}")
         return {"table": table, "id": row_id}
 
     def _update_row(self, table: str, id: int, changes: dict, reason: str) -> dict:
@@ -239,6 +244,7 @@ class Tools:
         reminder_id = self.store.add_reminder(
             text, moment, kind, explicit, linked_table, linked_id, self.source_text
         )
+        self.saved.append(f"_reminders#{reminder_id}")
         return {"table": "_reminders", "id": reminder_id, "remind_at": remind_at}
 
     def _cancel_reminder(self, id: int, reason: str) -> dict:

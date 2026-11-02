@@ -9,7 +9,6 @@ from datetime import datetime, time, timedelta, timezone
 from functools import wraps
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import anthropic
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import Forbidden, TelegramError
@@ -22,12 +21,12 @@ from telegram.ext import (
     filters,
 )
 
-from recall.agent import Agent, TurnFailed, summarize_row
+from recall.agent import TurnFailed, summarize_row
+from recall.auth import OWNER, telegram_identity
 from recall.config import Settings
-from recall.embeddings import LocalEmbedder
 from recall.reminders import select_sendable, start_of_local_day
-from recall.store import Store, ToolError, delete_user_data, known_user_ids, user_db_path
-from recall.usage import Limit, UsageLimiter
+from recall.service import RateLimited, RecallService, build_service
+from recall.store import ToolError
 
 log = logging.getLogger(__name__)
 
@@ -88,13 +87,12 @@ def allowed_only(handler: Handler) -> Handler:
     return wrapper
 
 
-def open_store(context: ContextTypes.DEFAULT_TYPE, user_id: int) -> Store:
-    settings: Settings = context.bot_data["settings"]
-    return Store(
-        user_db_path(settings.data_dir, user_id),
-        context.bot_data["embedder"],
-        settings.default_timezone,
-    )
+def open_store(service: RecallService, user_id: int):
+    return service.access(telegram_identity(user_id), "use the bot", OWNER)
+
+
+def user_store(context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    return open_store(context.bot_data["service"], user_id)
 
 
 def split_message(text: str) -> list[str]:
@@ -119,26 +117,16 @@ async def handle_help(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> No
 @allowed_only
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     user_id = update.effective_user.id
-    text = update.message.text
-    agent: Agent = context.bot_data["agent"]
-
-    limit = context.bot_data["limiter"].spend(user_id)
-    if limit is not Limit.NONE:
-        await update.message.reply_text(
-            "You've reached today's message limit. Please try again tomorrow."
-            if limit is Limit.USER
-            else "Recall has reached its limit for today. Please try again tomorrow."
-        )
-        return
-
-    def respond():
-        with open_store(context, user_id) as store:
-            return agent.respond(store, text)
+    identity = telegram_identity(user_id)
+    service: RecallService = context.bot_data["service"]
 
     typing = asyncio.create_task(keep_typing(update.message.chat))
     try:
         async with context.bot_data["locks"][user_id]:
-            reply = await asyncio.to_thread(respond)
+            reply = await asyncio.to_thread(service.chat, identity, update.message.text)
+    except RateLimited as exc:
+        await update.message.reply_text(str(exc))
+        return
     except TurnFailed:
         log.exception("Turn failed")
         await update.message.reply_text("Something went wrong, so nothing was saved. Please resend that.")
@@ -160,7 +148,7 @@ async def handle_undo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     user_id = update.effective_user.id
 
     def undo():
-        with open_store(context, user_id) as store:
+        with user_store(context, user_id) as store:
             return store.undo()
 
     async with context.bot_data["locks"][user_id]:
@@ -176,7 +164,7 @@ async def handle_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     def find():
-        with open_store(context, update.effective_user.id) as store:
+        with user_store(context, update.effective_user.id) as store:
             return store.search(words, limit=5)
 
     try:
@@ -189,7 +177,7 @@ async def handle_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     buttons = []
-    with open_store(context, update.effective_user.id) as store:
+    with user_store(context, update.effective_user.id) as store:
         for match in matches:
             row = store.get_row(match["table"], match["row"]["id"])
             label = f"{match['table'].lstrip('_')}: {summarize_row(row)}"[:60]
@@ -204,7 +192,7 @@ async def handle_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 @allowed_only
 async def handle_export(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    with open_store(context, update.effective_user.id) as store:
+    with user_store(context, update.effective_user.id) as store:
         data = store.export_zip()
     await update.message.reply_document(io.BytesIO(data), filename="recall-export.zip")
 
@@ -225,7 +213,7 @@ async def handle_delete_all(update: Update, _context: ContextTypes.DEFAULT_TYPE)
 
 @allowed_only
 async def handle_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    with open_store(context, update.effective_user.id) as store:
+    with user_store(context, update.effective_user.id) as store:
         prefs = store.prefs()
         if not context.args:
             await update.message.reply_text(f"Your time zone is {prefs.timezone}.")
@@ -242,7 +230,7 @@ async def handle_timezone(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
 @allowed_only
 async def handle_quiet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    with open_store(context, update.effective_user.id) as store:
+    with user_store(context, update.effective_user.id) as store:
         prefs = store.prefs()
         if context.args == ["off"]:
             prefs.quiet_enabled = False
@@ -266,7 +254,7 @@ async def handle_quiet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def _set_paused(update: Update, context: ContextTypes.DEFAULT_TYPE, paused: bool) -> None:
-    with open_store(context, update.effective_user.id) as store:
+    with user_store(context, update.effective_user.id) as store:
         prefs = store.prefs()
         prefs.paused = paused
         store.save_prefs(prefs)
@@ -289,7 +277,7 @@ async def handle_resume(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 @allowed_only
 async def handle_unmute(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    with open_store(context, update.effective_user.id) as store:
+    with user_store(context, update.effective_user.id) as store:
         prefs = store.prefs()
         if not context.args or context.args[0] not in prefs.muted_kinds:
             muted = ", ".join(prefs.muted_kinds) or "none"
@@ -305,19 +293,18 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     query = update.callback_query
     await query.answer()
     user_id = update.effective_user.id
-    settings: Settings = context.bot_data["settings"]
     action, *args = query.data.split(":")
 
     if action == "cancel":
         await query.edit_message_text("Cancelled.")
     elif action == "delete_all":
         async with context.bot_data["locks"][user_id]:
-            delete_user_data(settings.data_dir, user_id)
+            context.bot_data["service"].delete_all(telegram_identity(user_id))
         await query.edit_message_text("Everything has been erased.")
     elif action == "forget":
         table, row_id = args[0], int(args[1])
         async with context.bot_data["locks"][user_id]:
-            with open_store(context, user_id) as store:
+            with user_store(context, user_id) as store:
                 forgotten = store.forget(table, row_id)
         await query.edit_message_text("Erased." if forgotten else "That entry is already gone.")
     elif action == "rem":
@@ -326,7 +313,7 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
 async def _handle_reminder_button(query, context, user_id: int, args: list[str]) -> None:
     verb, value = args
-    with open_store(context, user_id) as store:
+    with user_store(context, user_id) as store:
         if verb == "done":
             store.mark_done(int(value))
             status = "Done."
@@ -352,8 +339,8 @@ def reminder_keyboard(reminder: dict) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(rows)
 
 
-def collect_due(settings: Settings, embedder, user_id: int, now: datetime) -> list[dict]:
-    with Store(user_db_path(settings.data_dir, user_id), embedder, settings.default_timezone) as store:
+def collect_due(service: RecallService, user_id: int, now: datetime) -> list[dict]:
+    with open_store(service, user_id) as store:
         store.sync_embeddings()
         prefs = store.prefs()
         return select_sendable(
@@ -361,25 +348,22 @@ def collect_due(settings: Settings, embedder, user_id: int, now: datetime) -> li
             now,
             prefs,
             store.sent_since(start_of_local_day(now, prefs)),
-            settings.max_reminders_per_day,
+            service.settings.max_reminders_per_day,
         )
 
 
 async def reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
-    settings: Settings = context.bot_data["settings"]
-    embedder = context.bot_data["embedder"]
+    service: RecallService = context.bot_data["service"]
     now = datetime.now(timezone.utc)
-    for user_id in known_user_ids(settings.data_dir):
-        if not settings.allows(user_id):
-            continue
+    for user_id in service.users():
         try:
             async with context.bot_data["locks"][user_id]:
-                due = await asyncio.to_thread(collect_due, settings, embedder, user_id, now)
+                due = await asyncio.to_thread(collect_due, service, user_id, now)
                 for reminder in due:
                     await context.bot.send_message(
                         user_id, reminder["text"], reply_markup=reminder_keyboard(reminder)
                     )
-                    with open_store(context, user_id) as store:
+                    with user_store(context, user_id) as store:
                         store.mark_sent(reminder["id"])
         except Forbidden:
             log.info("A user has blocked the bot, so their reminder stays pending")
@@ -389,17 +373,6 @@ async def reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_start(application: Application) -> None:
     await application.bot.set_my_commands(COMMANDS)
-
-
-def build_agent(settings: Settings) -> Agent:
-    return Agent(
-        anthropic.Anthropic(),
-        settings.model,
-        settings.effort,
-        settings.fast_mode,
-        settings.retrieval_model,
-        settings.design_model,
-    )
 
 
 def build_application(settings: Settings) -> Application:
@@ -413,16 +386,9 @@ def build_application(settings: Settings) -> Application:
         .post_init(on_start)
         .build()
     )
-    embedder = LocalEmbedder(settings.data_dir / "models")
     application.bot_data.update(
         settings=settings,
-        embedder=embedder,
-        agent=build_agent(settings),
-        limiter=UsageLimiter(
-            settings.data_dir / "usage.sqlite",
-            settings.max_messages_per_user_per_day,
-            settings.max_messages_per_day,
-        ),
+        service=build_service(settings),
         locks=defaultdict(asyncio.Lock),
     )
 
