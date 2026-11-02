@@ -263,6 +263,7 @@ class Tools:
         self.schemas = [tool for tool in TOOLS if allowed is None or tool["name"] in allowed]
         self.last_saved: tuple[str, int] | None = None
         self.saved: list[str] = []
+        self.failures = 0
 
     def run(self, name: str, tool_input: dict[str, Any]) -> str:
         handler = getattr(self, f"_{name}", None)

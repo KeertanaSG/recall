@@ -204,7 +204,11 @@ class Agent:
             stats.update(saved=len(tools.saved), cited=len(sources))
             if store.turn_id is not None:
                 sources = []  # A save confirms itself, so a source list would just repeat it.
-            store.log_exchange(text, clean)
+            try:
+                store.log_exchange(text, clean)
+            except Exception:
+                # The turn already succeeded, and an error here would invite a duplicate resend.
+                log.exception("chat_history_failed")
             return Reply(clean, sources)
 
     def capture(self, store: MemoryStore, text: str, now: datetime | None = None) -> list[str]:
@@ -220,6 +224,8 @@ class Agent:
             content = render("turn", context=message_context(store, now), text=text)
             self._attempt(store, [self.llm.user_message(content)], tools, CAPTURE_NOTE)
             stats["saved"] = len(tools.saved)
+            if tools.failures and not tools.saved:
+                raise TurnFailed("Every save failed.")  # Not the same as nothing to save.
             return tools.saved
 
     def _attempt(
@@ -256,6 +262,7 @@ class Agent:
                     with measured(log, "tool_call", expected=(ToolError,), tool=call.name):
                         results.append(ToolResult(call.id, tools.run(call.name, call.input)))
                 except ToolError as exc:
+                    tools.failures += 1
                     results.append(ToolResult(call.id, str(exc), True))
             messages.append(self.llm.tool_results_message(results))
         raise TurnFailed("The agent took too many steps.")

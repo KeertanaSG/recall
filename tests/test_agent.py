@@ -92,6 +92,30 @@ def test_a_crash_midway_leaves_nothing_saved(store, monkeypatch):
     assert store.get_row("notes", 2) is None and store.get_row("notes", 1)
 
 
+def test_a_chat_history_failure_keeps_the_saved_turn(store, monkeypatch):
+    notes_table(store)
+    store.turn_id = None
+    agent, _ = agent_with(
+        response(tool("add_row", table="notes", values={"body": "new"})), response(text("Saved."))
+    )
+
+    def fails(*_args):
+        raise RuntimeError("locked")
+
+    monkeypatch.setattr(store, "log_exchange", fails)
+    assert agent.respond(store, "new", NOW).text == "Saved."
+    assert store.get_row("notes", 2)["body"] == "new"
+
+
+def test_app_capture_reports_a_failed_save_instead_of_nothing_saved(store):
+    notes_table(store)
+    agent, _ = agent_with(
+        response(tool("add_row", table="missing", values={"body": "x"})), response(text("Sorry."))
+    )
+    with pytest.raises(TurnFailed, match="Every save failed"):
+        agent.capture(store, "new", NOW)
+
+
 def test_app_capture_adds_and_returns_only_what_it_added(store):
     notes_table(store)
     agent, client = agent_with(
