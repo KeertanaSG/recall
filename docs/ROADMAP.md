@@ -49,6 +49,8 @@ passed on 2026-11-02.
 | API tokens | Hashed tokens with read and write scopes, expiry, revocation and an audit log | Automated tests, local end-to-end run |
 | HTTP API | Search, read-only SQL, entries, reminders and saving, on localhost | Automated tests, local end-to-end run |
 | MCP server | Seven tools over stdio or HTTP, with no delete tool | Automated tests, local end-to-end run |
+| Smart nudges | Texts first about unfinished business, using a free detector, then a Haiku judge, then the reminder rules | Real Claude, labelled eval, automated tests |
+| Photo capture | Turns a photo into rows, with each receipt item saved separately. The photo is never stored | Real Claude with a generated receipt, automated tests |
 | Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
 
 Search-first retrieval also exists, but stays off until irrelevant sources on nothing-found replies
@@ -57,7 +59,7 @@ are fixed.
 ## Demo features
 
 Three features make the demo, because each shows something a chat assistant with memory doesn't do by
-default. None of them are built yet. Efforts are rough estimates.
+default. Smart nudges and photo capture are built. Efforts are rough estimates.
 
 | Feature | Demo moment | Shows | Effort |
 | --- | --- | --- | --- |
@@ -107,9 +109,9 @@ estimates.
 | 0 | `/forget` at scale | Accuracy | Uses hybrid search, drops weak matches, shows dates, and pages through results in any table | 1 day |
 | 0 | Short source summaries | Speed | When "From your notes" gets too long, any answer shows a summary instead of the full list | Half a day |
 | 0 | Deploy to a small server | Scale | Reminders stop depending on a laptop | Half a day |
-| 1 | Smart nudges | Accuracy | Finds open items that have gone quiet in any table | 2 to 3 days |
+| 1 | Smart nudges (done) | Accuracy | Finds open items that have gone quiet in any table | 2 to 3 days |
 | 1 | Person brief | Accuracy | Gathers a name across all tables | 2 days |
-| 1 | Photo capture | Speed | Images go through the same saving tools as text | 1 to 2 days |
+| 1 | Photo capture (done) | Speed | Images go through the same saving tools as text | 1 to 2 days |
 | 2 | Natural commands | Speed | Agent tools for undo, settings and forget, with deletes needing a tap | 2 days |
 | 2 | Bulk forget | Accuracy | "Forget all cabs from March" shows a count and a preview, then needs a tap | 1 day |
 | 2 | Charts | Accuracy | Plots SQL results from any table | 1 to 2 days |
@@ -143,7 +145,7 @@ Efforts are rough estimates.
 | Step | Work | Effort | Status |
 | --- | --- | --- | --- |
 | 1 | Fix the base: add-only `remember`, limits across processes, one service layer | 2 days | Done |
-| 2 | Prove it: bot handler tests, concurrent write test, injection and cross-user tests, bot logs saved to a file, reminders that don't wait on a busy user. Live Telegram test is done | 3 days | In progress |
+| 2 | Prove it: bot handler tests, concurrent write test, injection and cross-user tests, bot logs saved to a file, Live Telegram test is done | 3 days | In progress |
 | 3 | Faster and cheaper: search-first, one shared embedding service, cost per user | 3 days | Planned |
 | 4 | Accuracy: subject evals, retrieval metrics, a larger test set, checked crisis numbers | 5 days | Planned |
 | 5 | Deploy securely: disk encryption, HTTPS, encrypted backups, alerts | 3 days | Planned |

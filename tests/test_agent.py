@@ -116,6 +116,21 @@ def test_failed_app_capture_keeps_nothing(store):
     assert store.get_row("notes", 2) is None
 
 
+def test_photo_reaches_the_model_but_is_never_kept(store):
+    notes_table(store)
+    agent, client = agent_with(
+        response(tool("add_row", table="notes", values={"body": "Tea 40"})),
+        response(text("Tea, 40.")),
+    )
+    agent.respond(store, "[photo] lunch", NOW, image=b"jpeg-bytes")
+    image, caption = client.calls[0]["messages"][-1]["content"]
+    assert image["source"] == {"type": "base64", "media_type": "image/jpeg", "data": "anBlZy1ieXRlcw=="}
+    assert caption["text"].endswith("[photo] lunch")
+    assert "anBlZy1ieXRlcw" not in str(store.recent_messages())
+    assert store.recent_messages()[0]["content"] == "[photo] lunch"
+    assert store.conn.execute("SELECT source_text FROM notes WHERE id = 2").fetchone()[0] == "[photo] lunch"
+
+
 def test_capture_creates_table_saves_source_and_offers_undo(store):
     agent, _ = agent_with(
         response(tool("create_table", subject="movies", example="Watched Dune 2, 9/10")),
