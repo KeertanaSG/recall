@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo
 import anthropic
 
 from recall.llm import create_message
-from recall.retrieval import Retriever, fuse, result_key
+from recall.retrieval import Retriever, hybrid_search, result_key
 from recall.schema_design import TableDesigner
 from recall.store import ROW_METADATA, Store, ToolError
 from recall.tools import TOOLS, Tools
@@ -20,7 +20,6 @@ log = logging.getLogger(__name__)
 MAX_STEPS = 12
 MAX_SOURCES_SHOWN = 5
 PREFETCH_LIMIT = 15
-WORD = re.compile(r"[A-Za-z0-9]{4,}")
 REMINDER_INTERNALS = {"kind", "explicit", "status", "sent_at", "linked_table", "linked_id"}
 CITATION = re.compile(r"\s*\[(_?[a-z][a-z0-9_]*)#(\d+(?:\s*,\s*\d+)*)\]")
 
@@ -203,12 +202,7 @@ def message_context(store: Store, now: datetime) -> str:
 
 def prefetched_entries(store: Store, text: str) -> str:
     """Run the free local searches first, so a simple question may need no search tool."""
-    rankings = [store.keyword_search([word], PREFETCH_LIMIT) for word in WORD.findall(text)]
-    try:
-        rankings.append(store.search(text, PREFETCH_LIMIT))
-    except ToolError:
-        log.warning("Prefetch is using keywords only")
-    entries = {result_key(r): r["row"] for r in fuse(rankings, PREFETCH_LIMIT)}
+    entries = {result_key(r): r["row"] for r in hybrid_search(store, text, PREFETCH_LIMIT)}
     if not entries:
         return ""
     return (

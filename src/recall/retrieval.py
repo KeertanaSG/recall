@@ -12,6 +12,7 @@ nothing. If a model step fails, search still works, just with less filtering.
 
 import json
 import logging
+import re
 from typing import TypedDict
 
 import anthropic
@@ -26,6 +27,7 @@ log = logging.getLogger(__name__)
 MAX_ATTEMPTS = 1  # A second attempt doubled "nothing found" time and fixed nothing in evals/.
 MAX_CANDIDATES = 15
 FUSION_K = 60  # The standard reciprocal rank fusion constant.
+WORD = re.compile(r"[A-Za-z0-9]{4,}")
 
 PLAN_SYSTEM = """\
 You prepare searches over one person's saved notes, such as movies, expenses, promises and people.
@@ -55,6 +57,16 @@ GRADE_SCHEMA = {
     "required": ["relevant"],
     "additionalProperties": False,
 }
+
+
+def hybrid_search(store: Store, text: str, limit: int, table: str | None = None) -> list[dict]:
+    """Merge semantic and keyword matches with no model call."""
+    rankings = [store.keyword_search([word], limit, table) for word in WORD.findall(text)]
+    try:
+        rankings.append(store.search(text, limit, table))
+    except ToolError:
+        log.warning("Semantic search is unavailable, using keywords only")
+    return fuse(rankings, limit)
 
 
 class RetrievalState(TypedDict, total=False):
