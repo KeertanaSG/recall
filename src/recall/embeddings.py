@@ -1,3 +1,4 @@
+import threading
 from pathlib import Path
 from typing import Literal, Protocol
 
@@ -21,10 +22,20 @@ class LocalEmbedder:
     """Runs on this machine, so no key is needed and text never leaves it."""
 
     def __init__(self, cache_dir: Path):
-        self._model = TextEmbedding(EMBEDDING_MODEL, cache_dir=str(cache_dir))
+        self.cache_dir = cache_dir
+        self.lock = threading.Lock()
+        self.loaded: TextEmbedding | None = None
+
+    def _model(self) -> TextEmbedding:
+        """Load on first use, so a process that never searches saves the memory."""
+        with self.lock:
+            if self.loaded is None:
+                self.loaded = TextEmbedding(EMBEDDING_MODEL, cache_dir=str(self.cache_dir))
+            return self.loaded
 
     def embed(self, texts: list[str], input_type: InputType) -> list[list[float]]:
-        embed = self._model.query_embed if input_type == "query" else self._model.passage_embed
+        model = self._model()
+        embed = model.query_embed if input_type == "query" else model.passage_embed
         try:
             return [vector.tolist() for vector in embed(texts)]
         except Exception as exc:
