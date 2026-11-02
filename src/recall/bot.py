@@ -31,6 +31,7 @@ from recall.store import ToolError
 log = logging.getLogger(__name__)
 
 TICK_SECONDS = 30
+NUDGE_TICK_SECONDS = 3600
 TELEGRAM_TIMEOUT_SECONDS = 20
 TYPING_SECONDS = 4
 TELEGRAM_LIMIT = 4000
@@ -42,6 +43,7 @@ Try:
 - Cab to airport 450
 - Told Priya I'd send the file by Friday
 - How much did I spend on cabs this month?
+- A photo of a receipt
 
 This is an early test project. Your memories are kept separate from other users', but they \
 aren't encrypted on the server, so the person running this bot could read them. Messages also \
@@ -50,6 +52,7 @@ pass through Telegram and Anthropic. Please don't send passwords, bank details o
 Recall isn't a mental health service or for emergencies. If you're struggling, please reach out \
 to someone you trust or a local crisis line.
 
+/nudge checks for anything you've left unfinished
 /undo reverses the last save
 /forget <words> erases one entry
 /export downloads everything
@@ -60,6 +63,7 @@ to someone you trust or a local crisis line.
 /unmute <kind> turns a reminder type back on"""
 
 COMMANDS = [
+    BotCommand("nudge", "Check for unfinished business"),
     BotCommand("undo", "Reverse the last save"),
     BotCommand("forget", "Erase one entry"),
     BotCommand("export", "Download everything"),
@@ -116,6 +120,24 @@ async def handle_help(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> No
 
 @allowed_only
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await run_turn(update, context, update.message.text)
+
+
+@allowed_only
+async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    try:
+        file = await update.message.photo[-1].get_file()  # The last size is the largest.
+        image = bytes(await file.download_as_bytearray())
+    except TelegramError:
+        log.exception("Couldn't download a photo")
+        await update.message.reply_text("I couldn't open that photo. Please send it again.")
+        return
+    await run_turn(update, context, f"[photo] {update.message.caption or ''}".strip(), image)
+
+
+async def run_turn(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, image: bytes | None = None
+) -> None:
     user_id = update.effective_user.id
     identity = telegram_identity(user_id)
     service: RecallService = context.bot_data["service"]
@@ -123,7 +145,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     typing = asyncio.create_task(keep_typing(update.message.chat))
     try:
         async with context.bot_data["locks"][user_id]:
-            reply = await asyncio.to_thread(service.chat, identity, update.message.text)
+            reply = await asyncio.to_thread(service.chat, identity, text, image)
     except RateLimited as exc:
         await update.message.reply_text(str(exc))
         return
@@ -140,7 +162,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 @allowed_only
 async def handle_non_text(update: Update, _context: ContextTypes.DEFAULT_TYPE) -> None:
-    await update.message.reply_text("I can only read text messages for now.")
+    await update.message.reply_text("I can only read text messages and photos for now.")
 
 
 @allowed_only
@@ -352,23 +374,63 @@ def collect_due(service: RecallService, user_id: int, now: datetime) -> list[dic
         )
 
 
+async def deliver_due(context: ContextTypes.DEFAULT_TYPE, user_id: int, now: datetime) -> int:
+    """Send what's allowed now. The caller holds the user's lock."""
+    service: RecallService = context.bot_data["service"]
+    due = await asyncio.to_thread(collect_due, service, user_id, now)
+    for reminder in due:
+        await context.bot.send_message(
+            user_id, reminder["text"], reply_markup=reminder_keyboard(reminder)
+        )
+        with user_store(context, user_id) as store:
+            store.mark_sent(reminder["id"])
+    return len(due)
+
+
 async def reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
     service: RecallService = context.bot_data["service"]
     now = datetime.now(timezone.utc)
     for user_id in service.users():
+        lock = context.bot_data["locks"][user_id]
+        if lock.locked():
+            continue  # One busy user shouldn't delay everyone else. The next tick retries.
         try:
-            async with context.bot_data["locks"][user_id]:
-                due = await asyncio.to_thread(collect_due, service, user_id, now)
-                for reminder in due:
-                    await context.bot.send_message(
-                        user_id, reminder["text"], reply_markup=reminder_keyboard(reminder)
-                    )
-                    with user_store(context, user_id) as store:
-                        store.mark_sent(reminder["id"])
+            async with lock:
+                await deliver_due(context, user_id, now)
         except Forbidden:
             log.info("A user has blocked the bot, so their reminder stays pending")
         except TelegramError:
             log.exception("Couldn't send a reminder. It stays pending and will retry.")
+
+
+async def nudge_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
+    service: RecallService = context.bot_data["service"]
+    for user_id in service.users():
+        lock = context.bot_data["locks"][user_id]
+        if lock.locked():
+            continue
+        try:
+            async with lock:
+                await asyncio.to_thread(service.scan_nudges, telegram_identity(user_id))
+        except Exception:
+            log.exception("A nudge scan failed. Other users still run, and it retries next hour.")
+
+
+@allowed_only
+async def handle_nudge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user_id = update.effective_user.id
+    service: RecallService = context.bot_data["service"]
+    typing = asyncio.create_task(keep_typing(update.message.chat))
+    try:
+        async with context.bot_data["locks"][user_id]:
+            found = await asyncio.to_thread(service.scan_nudges, telegram_identity(user_id), True)
+            sent = await deliver_due(context, user_id, datetime.now(timezone.utc))
+    finally:
+        typing.cancel()
+    if not found:
+        await update.message.reply_text("Nothing's gone quiet right now.")
+    elif not sent:
+        await update.message.reply_text("I found something, and I'll send it when it's allowed.")
 
 
 async def on_start(application: Application) -> None:
@@ -396,6 +458,7 @@ def build_application(settings: Settings) -> Application:
     for command, handler in {
         "start": handle_help,
         "help": handle_help,
+        "nudge": handle_nudge,
         "undo": handle_undo,
         "forget": handle_forget,
         "export": handle_export,
@@ -409,6 +472,10 @@ def build_application(settings: Settings) -> Application:
         application.add_handler(CommandHandler(command, handler, filters=private))
     application.add_handler(CallbackQueryHandler(handle_button))
     application.add_handler(MessageHandler(private & filters.TEXT & ~filters.COMMAND, handle_text))
-    application.add_handler(MessageHandler(private & ~filters.TEXT & ~filters.COMMAND, handle_non_text))
+    application.add_handler(MessageHandler(private & filters.PHOTO, handle_photo))
+    application.add_handler(
+        MessageHandler(private & ~filters.TEXT & ~filters.PHOTO & ~filters.COMMAND, handle_non_text)
+    )
     application.job_queue.run_repeating(reminder_tick, interval=TICK_SECONDS, first=5)
+    application.job_queue.run_repeating(nudge_tick, interval=NUDGE_TICK_SECONDS, first=60)
     return application
