@@ -42,7 +42,7 @@ passed on 2026-11-02.
 | Corrections | Updates a fact and keeps the old value in history | Real Claude, sample messages |
 | Reminders | Finds dates, asks when none is given, and links the reminder to its entry | Real Claude, automated tests |
 | Personal patterns | Remembers what helps in a mood or situation, and brings it up later | Real Claude, sample messages |
-| Controls | `/undo`, `/forget`, `/export`, `/delete_all`, quiet hours, pause | Automated tests for storage, not the Telegram commands |
+| Controls | `/undo`, `/forget`, `/export`, `/delete_all`, quiet hours, pause | Automated tests, including the Telegram commands |
 | Natural replies | Sounds like a friend texting back | Real Claude, 57 replies including unseen messages |
 | Daily limits | Caps messages per user and in total, across all processes | Automated tests |
 | One service layer | The bot, API and MCP server all reach memory through `RecallService` | Automated tests |
@@ -56,6 +56,7 @@ passed on 2026-11-02.
 | Swappable parts | LLM, embedder, storage and channels sit behind interfaces, chosen in `factory.py` | Automated boundary tests, a fake second provider |
 | Structured logs | JSON events per process with turn IDs, timings and token totals, and no memory text | Real Claude across all three processes, automated tests |
 | Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
+| Setup | Installs with `uv`, or with pip from a pinned, hashed `requirements.txt` | Fresh install and import check for pip |
 
 Search-first retrieval is on by default, and scored 24/24 and 9/10 or better. Crisis
 replies point to trusted people and local services, and never include a phone number the model
@@ -108,8 +109,8 @@ estimates.
 | --- | --- | --- | --- | --- |
 | 0 | Live Telegram test (done 2026-11-02) | Accuracy | Tests every flow in real chats | 1 day |
 | 0 | Search-first on by default (done) | Speed, cost | Runs free local search before any model call | 1 day |
-| 0 | Bot command and button tests | Accuracy | Covers all handlers | 1 day |
-| 0 | Safe failure replies | Accuracy | Every failed turn gets a useful reply | Half a day |
+| 0 | Bot command and button tests (done) | Accuracy | Covers all handlers | 1 day |
+| 0 | Safe failure replies (done) | Accuracy | Every failed turn gets a useful reply | Half a day |
 | 0 | `/forget` at scale (done) | Accuracy | Uses hybrid search, drops weak matches, shows dates, and pages through results in any table | 1 day |
 | 0 | Short source summaries (done) | Speed | When "From your notes" gets too long, any answer shows a summary instead of the full list | Half a day |
 | 0 | Deploy to a small server | Scale | Reminders stop depending on a laptop | Half a day |
@@ -149,8 +150,8 @@ Efforts are rough estimates.
 | Step | Work | Effort | Status |
 | --- | --- | --- | --- |
 | 1 | Fix the base: add-only `remember`, limits across processes, one service layer | 2 days | Done |
-| 2 | Prove it: bot handler tests, concurrent write test, injection and cross-user tests, bot logs saved to a file, Live Telegram test is done | 3 days | In progress |
-| 3 | Faster and cheaper: search-first, one shared embedding service, cost per user | 3 days | Planned |
+| 2 | Prove it: bot handler tests, concurrent write test, injection and cross-user tests, bot logs saved to a file, live Telegram test | 3 days | Done |
+| 3 | Faster and cheaper: search-first (done), one shared embedding service, cost per user | 3 days | In progress |
 | 4 | Accuracy: subject evals, retrieval metrics, a larger test set, checked crisis numbers | 5 days | Planned |
 | 5 | Deploy securely: disk encryption, HTTPS, encrypted backups, alerts | 3 days | Planned |
 | 6 | Scale to 100 users: Phase 5 items, OAuth for remote MCP, a load test | 3 days | Waits for real users |
@@ -190,6 +191,14 @@ These stay parked until real use shows they're worth the cost.
 
 Passive recording of calls, screens or conversations stays out for good, as do passwords, bank
 details and medical records.
+
+## Still to check by hand
+
+These flows pass automated tests but haven't been tried for real yet:
+
+- A real receipt photo in Telegram
+- `/forget` paging in Telegram
+- `remember` from Claude Code
 
 ## Open decisions
 

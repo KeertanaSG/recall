@@ -1,6 +1,6 @@
 # Recall: PRD
 
-Status: draft for review. Nothing here is built. "Recall" is a working name.
+Status: core product built and running locally. Last updated 2026-11-02. See [ROADMAP.md](ROADMAP.md) for what exists, how it was tested and what comes next. "Recall" is a working name.
 
 ## One-liner
 
@@ -91,39 +91,45 @@ The user can run `/export`, `/forget` and `/delete_all`, and can pause proactive
 | Control | Undo, export, forget and delete everything |
 | Safety | Read queries are read-only and limited to that user's data. Deleting needs confirmation. |
 
+All of these are built.
+
 ### Should have
 
-- Connections across subjects, such as a pre-meeting summary about one person
-- Voice notes
-- A daily or weekly digest
-- A check-in when something important has gone quiet
-- Entity matching, so "Mom" and "Amma" are recognized as the same person
+- Connections across subjects, such as a pre-meeting summary about one person (built as person briefs)
+- A check-in when something important has gone quiet (built as smart nudges)
+- Voice notes (not built)
+- A daily or weekly digest (not built)
+- Entity matching, so "Mom" and "Amma" are recognized as the same person (not built)
 
 ### Could have
 
-- Photos of receipts, tickets or posters
-- Recommendations from personal history
-- Pattern finding, such as sleep against coffee
+- Photos of receipts, tickets or posters (built)
+- Recommendations from personal history (not built)
+- Pattern finding, such as sleep against coffee (not built)
 
 ## Architecture
 
 ```
-Telegram  -->  Bot service  -->  Agent (Claude)
-                                  tools: list_tables, create_table, add_row,
-                                         update_row, query, search, set_reminder
-                                    |
-                     SQLite per user + embeddings
-                                    |
-                        Scheduler  -->  proactive messages
+Telegram   HTTP API   MCP server
+    \          |         /
+          RecallService  (access checks, limits, audit)
+                |
+    Agent, tools, retrieval, nudges
+          |                 |
+      LLM interface     Storage interfaces
+      (Claude)          (SQLite per user, sqlite-vec, local embeddings)
+
+Telegram scheduler  -->  reminders and nudges
 ```
 
-SQLite with one file per user keeps data separated and simple to export or delete.
+SQLite with one file per user keeps data separated and simple to export or delete. The LLM, embedder and storage sit behind interfaces chosen in `factory.py`, so each can be replaced without touching the core.
 
 ## Key decisions
 
 | Decision | Choice | Why | Trade-off |
 | --- | --- | --- | --- |
 | Interface | Telegram | Already on your phone, and capture is instant | Bot messages aren't end-to-end encrypted |
+| Other apps | HTTP API and MCP, with scoped tokens | Lets tools like Claude Code read and add memories | More to secure, so neither offers a delete |
 | Storage | Tables plus embeddings | Tables give exact answers, and embeddings find vague memories | Two systems to keep in sync |
 | Schema | Agent-created, with guardrails | Works for anything, with no setup | Risk of messy tables, so this needs evals |
 | Math | SQL does the counting | LLMs are unreliable at totals | Needs safe query tools |
@@ -143,7 +149,7 @@ SQLite with one file per user keeps data separated and simple to export or delet
 | Reminders | Reminders the user finds useful | Most of them, rated by testers |
 | Habit | Days used in the first week | At least 4 of 7, for 2 or 3 testers |
 
-Targets marked "set after" need a first measurement, so that they aren't made up.
+Targets marked "set after" need a first measurement, so that they aren't made up. Capture and schema evals are still to come. Retrieval, nudge and injection results so far are in the [README](../README.md) and [ROADMAP.md](ROADMAP.md).
 
 ## Risks
 
@@ -152,7 +158,7 @@ Targets marked "set after" need a first measurement, so that they aren't made up
 | Confident wrong answer | Loses trust at once | Cite the saved entry, and say when nothing was found |
 | Messy schema | Answers get worse over time | Schema check, plus evals across long histories |
 | Sensitive data | Privacy harm | Keep it local, offer delete, and warn users what not to send |
-| Prompt injection in saved text | The agent could be manipulated | Treat stored text as data, and limit its tools |
+| Prompt injection in saved text | The agent could be manipulated | Treat stored text as data, and limit its tools. All 9 attacks were resisted in one run on real Claude |
 | Too many reminders | User mutes it | Daily limit, and easy feedback |
 | Forgetting to use it | No data, no value | A gentle digest, and extremely fast capture |
 | Competition from large assistants | Weakens the pitch | Focus on structured records, proactivity and inspectability |
@@ -167,11 +173,14 @@ Targets marked "set after" need a first measurement, so that they aren't made up
 6. Updates, corrections, export and delete
 7. Connections across subjects, and the digest
 
-The submission is still viable if work stops after step 5.
+All of these are built except the digest. Step 5 is partly done: there's a 5,524-row retrieval benchmark, but not yet the subject-by-subject evals.
+
+## Decided
+
+- **Languages:** English only for now.
+- **Inferred promises:** proactive messages can fire on them. A nudge must pass a Haiku judge and the reminder rules, and each one has a stop button.
+- **Quiet hours:** on by default, from 22:00 to 08:00. Reminders the user asked for still fire on time.
 
 ## Open questions
 
 1. What's forgotten most often, and should that be the first use case?
-2. Are English messages enough, or should other languages work too?
-3. Should reminders ever fire on inferred promises, or only clear deadlines?
-4. Should proactive messages have quiet hours by default?
