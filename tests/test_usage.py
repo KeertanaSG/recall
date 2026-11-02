@@ -80,3 +80,13 @@ def test_known_user_ids_ignores_other_files(tmp_path):
     (users / "notes.sqlite").touch()
     assert known_user_ids(tmp_path) == [111]
     assert known_user_ids(tmp_path / "missing") == []
+
+
+def test_a_bad_number_in_settings_is_a_clear_error(monkeypatch):
+    monkeypatch.setattr("recall.config.load_dotenv", lambda: None)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    monkeypatch.setenv("ALLOWED_USER_IDS", "1")
+    monkeypatch.setenv("RECALL_API_PORT", "abc")
+    with pytest.raises(SystemExit, match="numeric setting"):
+        Settings.from_env()

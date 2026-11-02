@@ -47,26 +47,29 @@ class Settings:
         missing = [name for name in required if not os.environ.get(name)]
         if missing:
             raise SystemExit(f"Missing required settings: {', '.join(missing)}. See .env.example.")
-        return cls(
-            telegram_token=os.environ["TELEGRAM_BOT_TOKEN"],
-            allowed_user_ids=parse_allowed_users(os.environ["ALLOWED_USER_IDS"]),
-            data_dir=Path(os.environ.get("RECALL_DATA_DIR", "data")),
-            default_timezone=os.environ.get("RECALL_DEFAULT_TIMEZONE", "Asia/Kolkata"),
-            model=os.environ.get("RECALL_MODEL", "claude-haiku-5-5"),
-            design_model=os.environ.get("RECALL_DESIGN_MODEL", "claude-opus-5-5"),
-            effort=os.environ.get("RECALL_EFFORT", "low"),
-            retrieval_model=os.environ.get("RECALL_RETRIEVAL_MODEL", "claude-haiku-5-5"),
-            max_reminders_per_day=int(os.environ.get("RECALL_MAX_REMINDERS_PER_DAY", "5")),
-            max_messages_per_user_per_day=int(
-                os.environ.get("RECALL_MAX_MESSAGES_PER_USER_PER_DAY", "30")
-            ),
-            max_messages_per_day=int(os.environ.get("RECALL_MAX_MESSAGES_PER_DAY", "300")),
-            llm_provider=llm_provider,
-            embedder=os.environ.get("RECALL_EMBEDDER", "local"),
-            storage=os.environ.get("RECALL_STORAGE", "sqlite"),
-            prefetch=os.environ.get("RECALL_PREFETCH", "true").lower() == "true",
-            api_requests_per_minute=int(os.environ.get("RECALL_API_REQUESTS_PER_MINUTE", "60")),
-            api_port=int(os.environ.get("RECALL_API_PORT", "8787")),
-            mcp_port=int(os.environ.get("RECALL_MCP_PORT", "8788")),
-            mcp_public_url=os.environ.get("RECALL_MCP_PUBLIC_URL", "http://127.0.0.1:8788"),
-        )
+        try:
+            return cls(
+                telegram_token=os.environ["TELEGRAM_BOT_TOKEN"],
+                allowed_user_ids=parse_allowed_users(os.environ["ALLOWED_USER_IDS"]),
+                data_dir=Path(os.environ.get("RECALL_DATA_DIR", "data")),
+                default_timezone=os.environ.get("RECALL_DEFAULT_TIMEZONE", "Asia/Kolkata"),
+                model=os.environ.get("RECALL_MODEL", "claude-haiku-5-5"),
+                design_model=os.environ.get("RECALL_DESIGN_MODEL", "claude-opus-5-5"),
+                effort=os.environ.get("RECALL_EFFORT", "low"),
+                retrieval_model=os.environ.get("RECALL_RETRIEVAL_MODEL", "claude-haiku-5-5"),
+                max_reminders_per_day=int(os.environ.get("RECALL_MAX_REMINDERS_PER_DAY", "5")),
+                max_messages_per_user_per_day=int(
+                    os.environ.get("RECALL_MAX_MESSAGES_PER_USER_PER_DAY", "30")
+                ),
+                max_messages_per_day=int(os.environ.get("RECALL_MAX_MESSAGES_PER_DAY", "300")),
+                llm_provider=llm_provider,
+                embedder=os.environ.get("RECALL_EMBEDDER", "local"),
+                storage=os.environ.get("RECALL_STORAGE", "sqlite"),
+                prefetch=os.environ.get("RECALL_PREFETCH", "true").lower() == "true",
+                api_requests_per_minute=int(os.environ.get("RECALL_API_REQUESTS_PER_MINUTE", "60")),
+                api_port=int(os.environ.get("RECALL_API_PORT", "8787")),
+                mcp_port=int(os.environ.get("RECALL_MCP_PORT", "8788")),
+                mcp_public_url=os.environ.get("RECALL_MCP_PUBLIC_URL", "http://127.0.0.1:8788"),
+            )
+        except ValueError as exc:
+            raise SystemExit(f"A numeric setting is invalid: {exc}. See .env.example.") from exc

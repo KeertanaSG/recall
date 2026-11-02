@@ -70,6 +70,28 @@ def notes_table(store):
     return store.add_row("notes", {"body": "private"})
 
 
+def test_a_crash_midway_leaves_nothing_saved(store, monkeypatch):
+    notes_table(store)
+    store.turn_id = None
+    agent, _ = agent_with(
+        response(tool("add_row", table="notes", values={"body": "first"})),
+        response(tool("add_row", table="notes", values={"body": "second"})),
+    )
+    real = store.add_row
+    calls = []
+
+    def fails_second_time(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 2:
+            raise RuntimeError("disk failure")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(store, "add_row", fails_second_time)
+    with pytest.raises(TurnFailed):
+        agent.respond(store, "two things", NOW)
+    assert store.get_row("notes", 2) is None and store.get_row("notes", 1)
+
+
 def test_app_capture_adds_and_returns_only_what_it_added(store):
     notes_table(store)
     agent, client = agent_with(

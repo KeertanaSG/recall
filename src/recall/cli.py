@@ -41,7 +41,10 @@ def tokens() -> None:
     if args.command == "create":
         if not settings.allows(args.user):
             raise SystemExit(f"User {args.user} isn't in ALLOWED_USER_IDS.")
-        token = store.create(args.user, args.name, set(args.scopes.split(",")), args.days)
+        try:
+            token = store.create(args.user, args.name, set(args.scopes.split(",")), args.days)
+        except ValueError as exc:
+            raise SystemExit(str(exc)) from exc
         print(f"{token}\nThis is the only time it's shown. Keep it somewhere safe.")
     elif args.command == "list":
         for row in store.list_tokens():

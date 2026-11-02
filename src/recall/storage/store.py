@@ -211,9 +211,9 @@ class LocalEmbedder:
             return self.loaded
 
     def embed(self, texts: list[str], input_type: InputType) -> list[list[float]]:
-        model = self._model()
-        embed = model.query_embed if input_type == "query" else model.passage_embed
         try:
+            model = self._model()  # Loading can fail too, such as a first run with no network.
+            embed = model.query_embed if input_type == "query" else model.passage_embed
             return [vector.tolist() for vector in embed(texts)]
         except Exception as exc:
             raise EmbeddingError(str(exc)) from exc
@@ -247,13 +247,20 @@ class Store:
 
     @contextmanager
     def _transaction(self):
-        self.conn.execute("BEGIN IMMEDIATE")
+        """Run writes together. Database errors become ToolErrors, so the agent can retry."""
+        try:
+            self.conn.execute("BEGIN IMMEDIATE")
+        except sqlite3.OperationalError as exc:
+            raise ToolError("Memory is busy right now. Try once more.") from exc
         try:
             yield
+            self.conn.execute("COMMIT")
+        except sqlite3.Error as exc:
+            self.conn.execute("ROLLBACK")
+            raise ToolError("That couldn't be saved. Try once more.") from exc
         except BaseException:
             self.conn.execute("ROLLBACK")
             raise
-        self.conn.execute("COMMIT")
 
     # Schema
 

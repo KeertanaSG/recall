@@ -6,6 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from telegram import Update
+from telegram.error import BadRequest, TelegramError
+
 from recall.access import Limit
 from recall.channels.telegram import (
     collect_due,
@@ -14,7 +17,9 @@ from recall.channels.telegram import (
     handle_button,
     handle_nudge,
     handle_photo,
+    on_error,
     reminder_keyboard,
+    reminder_tick,
     split_message,
 )
 from recall.config import Settings
@@ -181,3 +186,49 @@ def test_split_message_keeps_all_text():
     assert "".join(split_message(text)) == text
     assert all(len(part) <= 4000 for part in split_message(text))
     assert split_message("") == [""]
+
+
+def test_one_users_failure_does_not_stop_other_reminders(tmp_path, embedder, monkeypatch):
+    service = make_service(tmp_path, embedder)
+    service.users = lambda: [1, 2]
+    _, context = fake_chat(service)
+    seen = []
+
+    async def deliver(_context, user_id, _now):
+        seen.append(user_id)
+        if user_id == 1:
+            raise RuntimeError("corrupt database")
+
+    monkeypatch.setattr("recall.channels.telegram.deliver_due", deliver)
+    asyncio.run(reminder_tick(context))
+    assert seen == [1, 2]
+
+
+def test_a_failed_error_reply_does_not_raise():
+    message = SimpleNamespace(reply_text=AsyncMock(side_effect=TelegramError("down")))
+    update = Update(1)
+    update._effective_message = message
+    asyncio.run(on_error(update, SimpleNamespace(error=RuntimeError("x"))))
+    message.reply_text.assert_awaited_once()
+
+
+def test_a_double_tap_is_ignored():
+    message = SimpleNamespace(reply_text=AsyncMock())
+    update = Update(1)
+    update._effective_message = message
+    error = BadRequest("Message is not modified")
+    asyncio.run(on_error(update, SimpleNamespace(error=error)))
+    message.reply_text.assert_not_awaited()
+
+
+def test_photo_cleanup_failure_keeps_the_reply(tmp_path, embedder):
+    service = make_service(tmp_path, embedder)
+    service.agent = SimpleNamespace(respond=lambda store, text, image=None: Reply("Saved."))
+    service.limiter = SimpleNamespace(spend=lambda _user: Limit.NONE)
+    file = SimpleNamespace(download_as_bytearray=AsyncMock(return_value=bytearray(b"jpeg")))
+    large = SimpleNamespace(get_file=AsyncMock(return_value=file))
+    update, context = fake_chat(service, photo=[large], caption=None)
+    status = SimpleNamespace(delete=AsyncMock(side_effect=TelegramError("gone")))
+    update.message.reply_text.return_value = status
+    asyncio.run(handle_photo(update, context))
+    update.message.reply_text.assert_awaited_with("Saved.")

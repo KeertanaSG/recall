@@ -261,3 +261,22 @@ def test_bearer_verifier(service, reader):
     assert asyncio.run(verifier.verify_token("rcl_bad")) is None
     access = asyncio.run(verifier.verify_token(reader))
     assert access.scopes == [READ]
+
+
+def test_a_crash_is_a_plain_500_with_no_detail(service, reader):
+    def crash(_identity):
+        raise RuntimeError("my private note")
+
+    service.list_tables = crash
+    client = TestClient(create_app(service), raise_server_exceptions=False)
+    response = client.get("/v1/tables", headers=auth(reader))
+    assert response.status_code == 500 and response.json() == {"detail": "Something went wrong."}
+
+
+def test_a_failed_audit_write_keeps_the_result(service, reader, monkeypatch):
+    def fails(*_args, **_kwargs):
+        raise OSError("disk full")
+
+    identity = service.tokens.verify(reader)
+    monkeypatch.setattr(service.tokens, "record", fails)
+    assert service.list_tables(identity)[0]["name"] == "notes"

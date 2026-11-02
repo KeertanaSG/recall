@@ -1,4 +1,5 @@
 import json
+import sqlite3
 from datetime import UTC
 from types import SimpleNamespace
 
@@ -8,7 +9,8 @@ import pytest
 
 from recall.core.retrieval import Retriever, fuse
 from recall.llm.claude import ClaudeLLM
-from recall.storage.store import ToolError
+from recall.storage.base import EmbeddingError
+from recall.storage.store import LocalEmbedder, ToolError
 
 
 def reply(payload, stop_reason="end_turn"):
@@ -149,3 +151,23 @@ def test_required_columns_are_enforced(store):
     store.add_column("movies", "genre", "text")
     assert store.get_row("movies", row_id)["genre"] is None
     assert any(c["required"] for c in store.tables()[0]["columns"])
+
+
+def test_a_locked_database_is_a_retryable_tool_error(store):
+    store.create_table("notes", "Notes", [{"name": "body", "type": "text"}])
+    other = sqlite3.connect(store.path)
+    other.execute("BEGIN IMMEDIATE")
+    store.conn.execute("PRAGMA busy_timeout=20")
+    with pytest.raises(ToolError, match="busy"):
+        store.add_row("notes", {"body": "x"})
+    other.rollback()
+    assert store.add_row("notes", {"body": "x"}) == 1
+
+
+def test_a_failed_embedding_load_is_an_embedding_error(tmp_path, monkeypatch):
+    def fails(*_args, **_kwargs):
+        raise OSError("no network")
+
+    monkeypatch.setattr("recall.storage.store.TextEmbedding", fails)
+    with pytest.raises(EmbeddingError):
+        LocalEmbedder(tmp_path).embed(["x"], "query")

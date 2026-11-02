@@ -63,8 +63,13 @@ class RecallService:
         self.nudger = nudger
 
     def _record(self, identity: Identity, action: str, outcome: str) -> None:
-        if identity.token_id is not None:
+        if identity.token_id is None:
+            return
+        try:
             self.tokens.record(identity, action, outcome)
+        except Exception:
+            # This runs as a request ends, so it mustn't replace the request's own result.
+            log.exception("audit_failed", action=action, audit_outcome=outcome)
 
     def _authorize(self, identity: Identity, action: str, scope: str) -> None:
         if scope not in identity.scopes or not self.settings.allows(identity.user_id):

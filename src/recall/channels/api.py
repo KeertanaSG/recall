@@ -76,6 +76,11 @@ def create_app(service: RecallService) -> FastAPI:
 
         app.add_exception_handler(error, handler)
 
+    @app.exception_handler(Exception)
+    def unexpected(_request: Request, exc: Exception) -> JSONResponse:
+        log.error("request_crashed", exc_info=exc)
+        return JSONResponse({"detail": "Something went wrong."}, status_code=500)
+
     @app.get("/v1/health")
     def health() -> dict:
         return {"status": "ok"}

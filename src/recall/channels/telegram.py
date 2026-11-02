@@ -10,7 +10,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
-from telegram.error import Forbidden, TelegramError
+from telegram.error import BadRequest, Forbidden, TelegramError
 from telegram.ext import (
     Application,
     CallbackQueryHandler,
@@ -117,7 +117,10 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         await run_turn(update, context, f"[photo] {update.message.caption or ''}".strip(), image)
     finally:
-        await status.delete()
+        try:
+            await status.delete()
+        except TelegramError:
+            log.warning("photo_status_delete_failed")
 
 
 async def run_turn(
@@ -427,6 +430,9 @@ async def reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
             log.info("reminder_held", reason="bot_blocked", user=user_ref(user_id))
         except TelegramError:
             log.exception("reminder_send_failed", user=user_ref(user_id))
+        except Exception:
+            # One user's broken memory mustn't stop everyone else's reminders.
+            log.exception("reminder_tick_failed", user=user_ref(user_id))
 
 
 async def nudge_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -460,9 +466,14 @@ async def handle_nudge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
 
 async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if isinstance(context.error, BadRequest) and "not modified" in str(context.error):
+        return  # A double tap on a button that already did its job.
     log.error("handler_failed", exc_info=context.error)
     if isinstance(update, Update) and update.effective_message:
-        await update.effective_message.reply_text("Something went wrong. Please try again.")
+        try:
+            await update.effective_message.reply_text("Something went wrong. Please try again.")
+        except TelegramError:
+            log.warning("error_reply_failed")
 
 
 async def on_start(application: Application) -> None:

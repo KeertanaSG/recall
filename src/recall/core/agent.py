@@ -227,7 +227,10 @@ class Agent:
     ) -> str:
         try:
             return self._run(messages, tools, note)
-        except (LLMError, TurnFailed) as exc:
+        except Exception as exc:
+            # Any failure, expected or not, must leave no half-finished turn behind.
+            if not isinstance(exc, LLMError | TurnFailed):
+                log.exception("turn_crashed")
             if store.turn_id is not None:
                 store.undo(store.turn_id)
             raise TurnFailed(str(exc)) from exc
