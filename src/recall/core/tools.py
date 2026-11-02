@@ -271,7 +271,11 @@ class Tools:
             raise ToolError(f"Unknown tool {name!r}.")
         try:
             return json.dumps(handler(**tool_input), ensure_ascii=False, default=str)
+        except ToolError:
+            self.failures += 1
+            raise
         except TypeError as exc:
+            self.failures += 1
             raise ToolError(f"Bad arguments for {name}: {exc}") from exc
 
     def _list_tables(self) -> list[dict]:

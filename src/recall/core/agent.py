@@ -262,7 +262,6 @@ class Agent:
                     with measured(log, "tool_call", expected=(ToolError,), tool=call.name):
                         results.append(ToolResult(call.id, tools.run(call.name, call.input)))
                 except ToolError as exc:
-                    tools.failures += 1
                     results.append(ToolResult(call.id, str(exc), True))
             messages.append(self.llm.tool_results_message(results))
         raise TurnFailed("The agent took too many steps.")
