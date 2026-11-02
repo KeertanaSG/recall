@@ -74,6 +74,7 @@ touches a database directly.
 src/recall/
   channels/   telegram.py, api.py, mcp_server.py: thin layers over the service
   core/       agent.py, tools.py, retrieval.py, nudges.py: the product logic
+  prompts/    Every prompt and long message, as Jinja templates
   llm/        base.py is the interface, claude.py is the provider
   storage/    base.py is the interface, store.py is SQLite and local embeddings
   service.py  The one path to a user's memory
@@ -95,6 +96,7 @@ second, fake provider with a different message format to prove the seam works.
 | The models | Nothing | Set `RECALL_MODEL`, `RECALL_RETRIEVAL_MODEL` or `RECALL_DESIGN_MODEL` |
 | The embedder | `Embedder` in [`storage/base.py`](src/recall/storage/base.py) | Register it and set `RECALL_EMBEDDER` |
 | The database | `MemoryStore` and `StoreProvider` in [`storage/base.py`](src/recall/storage/base.py) | Register it and set `RECALL_STORAGE` |
+| Prompt wording | Nothing | Edit the template in `prompts/`, then rerun the evals |
 | The chat app | A new file in `channels/`, calling `RecallService` | Add a start command |
 
 Only Claude, local embeddings and SQLite exist today. A new provider also has to pass the evals,
