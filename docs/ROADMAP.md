@@ -28,8 +28,8 @@ The targets are proposals, and the 95% figure should be confirmed after the firs
 
 ## Built today
 
-The core product exists and has 162 passing automated tests, but it has not yet run on live
-Telegram.
+The core product exists and has 162 passing automated tests. Its first full live Telegram test
+passed on 2026-11-02.
 
 | Feature | What it does | Tested with |
 | --- | --- | --- |
@@ -100,15 +100,18 @@ estimates.
 
 | Phase | Item | Goal served | How it stays general | Effort |
 | --- | --- | --- | --- | --- |
-| 0 | Live Telegram test | Accuracy | Tests every flow in real chats | 1 day |
+| 0 | Live Telegram test (done 2026-11-02) | Accuracy | Tests every flow in real chats | 1 day |
 | 0 | Search-first on by default | Speed, cost | Runs free local search before any model call | 1 day |
 | 0 | Bot command and button tests | Accuracy | Covers all handlers | 1 day |
 | 0 | Safe failure replies | Accuracy | Every failed turn gets a useful reply | Half a day |
+| 0 | `/forget` at scale | Accuracy | Uses hybrid search, drops weak matches, shows dates, and pages through results in any table | 1 day |
+| 0 | Short source summaries | Speed | When "From your notes" gets too long, any answer shows a summary instead of the full list | Half a day |
 | 0 | Deploy to a small server | Scale | Reminders stop depending on a laptop | Half a day |
 | 1 | Smart nudges | Accuracy | Finds open items that have gone quiet in any table | 2 to 3 days |
 | 1 | Person brief | Accuracy | Gathers a name across all tables | 2 days |
 | 1 | Photo capture | Speed | Images go through the same saving tools as text | 1 to 2 days |
 | 2 | Natural commands | Speed | Agent tools for undo, settings and forget, with deletes needing a tap | 2 days |
+| 2 | Bulk forget | Accuracy | "Forget all cabs from March" shows a count and a preview, then needs a tap | 1 day |
 | 2 | Charts | Accuracy | Plots SQL results from any table | 1 to 2 days |
 | 2 | Voice notes | Speed | Speech becomes a normal message | 1 to 2 days |
 | 2 | Weekly digest | Accuracy | Summarizes the week from every table | 1 to 2 days |
@@ -140,7 +143,7 @@ Efforts are rough estimates.
 | Step | Work | Effort | Status |
 | --- | --- | --- | --- |
 | 1 | Fix the base: add-only `remember`, limits across processes, one service layer | 2 days | Done |
-| 2 | Prove it: live Telegram test, concurrent write test, injection and cross-user tests | 3 days | Next |
+| 2 | Prove it: bot handler tests, concurrent write test, injection and cross-user tests, bot logs saved to a file, reminders that don't wait on a busy user. Live Telegram test is done | 3 days | In progress |
 | 3 | Faster and cheaper: search-first, one shared embedding service, cost per user | 3 days | Planned |
 | 4 | Accuracy: subject evals, retrieval metrics, a larger test set, checked crisis numbers | 5 days | Planned |
 | 5 | Deploy securely: disk encryption, HTTPS, encrypted backups, alerts | 3 days | Planned |
@@ -175,6 +178,7 @@ These stay parked until real use shows they're worth the cost.
 | Cheaper or open models | Haiku is already close to the cheapest, and a local Qwen3 test was much slower |
 | WhatsApp or iMessage | WhatsApp policy and fees, and no official iMessage bot API |
 | Shared memories | Non-goal in the PRD |
+| Hosted Postgres with pgvector | One SQLite file per user is the current decision. Move when Recall needs more than one server, which only means replacing `StoreProvider` and rewriting `store.py` |
 | Scale past 1,000 users | Needs webhooks, separate workers and storage shards |
 
 Passive recording of calls, screens or conversations stays out for good, as do passwords, bank
