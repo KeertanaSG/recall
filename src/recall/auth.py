@@ -15,6 +15,7 @@ from pathlib import Path
 TOKEN_PREFIX = "rcl_"
 READ = "read"
 WRITE = "write"
+OWNER = "owner"  # Telegram only: tokens can never hold this scope.
 AUDIT_DAYS = 30
 
 SCHEMA = """
@@ -43,11 +44,16 @@ CREATE INDEX IF NOT EXISTS audit_by_time ON audit (at);
 
 @dataclass(frozen=True)
 class Identity:
-    token_id: int
+    token_id: int | None
     user_id: int
     name: str
     scopes: frozenset[str]
-    expires_at: datetime
+    expires_at: datetime | None = None
+
+
+def telegram_identity(user_id: int) -> Identity:
+    """Telegram has already verified the sender, so the chat needs no token."""
+    return Identity(None, user_id, "telegram", frozenset({READ, WRITE, OWNER}))
 
 
 def _hash(token: str) -> str:

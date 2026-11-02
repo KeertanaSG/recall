@@ -6,34 +6,27 @@ import pytest
 from fastapi.testclient import TestClient
 
 from recall.api import create_app
-from recall.auth import READ, WRITE, TokenStore
+from recall.auth import OWNER, READ, WRITE, TokenStore, telegram_identity
 from recall.config import Settings
 from recall.mcp_server import BearerVerifier, create_server
-from recall.service import AccessDenied, NotFound, RateLimited, RecallService
-from recall.store import Store, user_db_path
+from recall.service import AccessDenied, LocalStoreProvider, NotFound, RateLimited, RecallService
 from recall.usage import UsageLimiter
 
 NOW = datetime(2026, 11, 2, tzinfo=timezone.utc)
 
 
-class Stores:
-    def __init__(self, data_dir, embedder):
-        self.data_dir = data_dir
-        self.embedder = embedder
-
-    def open(self, user_id):
-        return Store(user_db_path(self.data_dir, user_id), self.embedder, "Asia/Kolkata")
-
-
 @pytest.fixture
 def agent():
-    return SimpleNamespace(respond=lambda store, text: SimpleNamespace(text=f"Saved {text}", sources=[]))
+    return SimpleNamespace(
+        respond=lambda store, text: f"Replied to {text}",
+        capture=lambda store, text: ["notes#2"],
+    )
 
 
 @pytest.fixture
 def service(tmp_path, embedder, agent):
     settings = Settings("t", frozenset({1, 2}), tmp_path, "Asia/Kolkata", api_requests_per_minute=5)
-    stores = Stores(tmp_path, embedder)
+    stores = LocalStoreProvider(settings, embedder)
     with stores.open(1) as store:
         store.create_table("notes", "Notes", [{"name": "body", "type": "text"}])
         store.add_row("notes", {"body": "secret of user one"})
@@ -82,6 +75,33 @@ def test_scopes_must_be_known(service):
 def test_read_token_cannot_write(service, reader):
     with pytest.raises(AccessDenied):
         service.remember(service.tokens.verify(reader), "x")
+
+
+def test_tokens_can_never_act_as_the_owner(service, writer):
+    identity = service.tokens.verify(writer)
+    with pytest.raises(AccessDenied):
+        service.chat(identity, "what have I saved?")
+    with pytest.raises(AccessDenied):
+        service.delete_all(identity)
+    with pytest.raises(ValueError):
+        service.tokens.create(1, "x", {OWNER}, 1)
+    assert service.list_tables(identity)
+
+
+def test_telegram_passes_the_same_door(service):
+    assert service.chat(telegram_identity(1), "hi") == "Replied to hi"
+    assert service.users() == [1]
+    with pytest.raises(AccessDenied):
+        service.chat(telegram_identity(3), "hi")
+    service.delete_all(telegram_identity(1))
+    assert service.users() == []
+
+
+def test_chat_shares_the_daily_limit_with_tokens(service, writer):
+    service.remember(service.tokens.verify(writer), "a")
+    service.chat(telegram_identity(1), "b")
+    with pytest.raises(RateLimited, match="today's message limit"):
+        service.chat(telegram_identity(1), "c")
 
 
 def test_removed_user_loses_access_even_with_a_valid_token(service):
@@ -159,7 +179,7 @@ def test_api_reads_and_keeps_queries_read_only(client, reader):
 
 def test_api_maps_errors_to_status_codes(client, reader, writer):
     assert client.post("/v1/remember", json={"text": "x"}, headers=auth(reader)).status_code == 403
-    assert client.post("/v1/remember", json={"text": "x"}, headers=auth(writer)).json()["reply"] == "Saved x"
+    assert client.post("/v1/remember", json={"text": "x"}, headers=auth(writer)).json() == {"saved": ["notes#2"]}
     assert client.post("/v1/remember", json={"text": "x" * 5000}, headers=auth(writer)).status_code == 422
 
 
