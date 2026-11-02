@@ -262,9 +262,9 @@ def test_demo_fills_empty_memory_and_backs_up_on_fresh(tmp_path, embedder, monke
 
 def test_missing_settings_are_named(monkeypatch):
     monkeypatch.setattr("recall.config.load_dotenv", lambda: None)
-    for name in ("TELEGRAM_BOT_TOKEN", "ALLOWED_USER_IDS", "ANTHROPIC_API_KEY"):
+    for name in ("TELEGRAM_BOT_TOKEN", "ALLOWED_USER_IDS"):
         monkeypatch.delenv(name, raising=False)
-    with pytest.raises(SystemExit, match="TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS, ANTHROPIC_API_KEY"):
+    with pytest.raises(SystemExit, match="TELEGRAM_BOT_TOKEN, ALLOWED_USER_IDS"):
         Settings.from_env()
 
 

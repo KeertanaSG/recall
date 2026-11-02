@@ -1,11 +1,34 @@
 import hashlib
+import json
 import math
 import re
+from types import SimpleNamespace as NS
 
 import pytest
 
+from recall.llm.litellm_provider import LiteLLMProvider
 from recall.storage.base import EMBEDDING_DIM, EmbeddingError
 from recall.storage.store import Store
+
+
+def completion(text="", calls=(), finish=None):
+    """A LiteLLM response. `calls` holds (name, input) pairs."""
+    tool_calls = [
+        NS(id=f"call_{name}", function=NS(name=name, arguments=json.dumps(arguments)))
+        for name, arguments in calls
+    ]
+    message = NS(
+        content=text,
+        tool_calls=tool_calls or None,
+        model_dump=lambda exclude_none: {"role": "assistant", "content": text},
+    )
+    finish = finish or ("tool_calls" if calls else "stop")
+    usage = NS(prompt_tokens=1, completion_tokens=1)
+    return NS(choices=[NS(message=message, finish_reason=finish)], usage=usage)
+
+
+def fake_llm(client):
+    return LiteLLMProvider(client.complete)
 
 
 class FakeEmbedder:

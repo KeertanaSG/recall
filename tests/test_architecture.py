@@ -11,35 +11,38 @@ from recall.config import Settings
 from recall.core.agent import Agent, TurnFailed
 from recall.core.nudges import Nudger
 from recall.llm.base import Completion, LLMError, Stop, ToolCall
+from recall.llm.litellm_provider import LiteLLMProvider
 
 SOURCE = Path(__file__).parents[1] / "src" / "recall"
 # Only these may touch a vendor. Everything else goes through the interfaces.
 FORBIDDEN = {
     "core": {
-        "anthropic",
+        "litellm",
+        "openai",
         "telegram",
         "fastapi",
         "mcp",
         "sqlite3",
         "sqlite_vec",
         "recall.channels",
-        "recall.llm.claude",
+        "recall.llm.litellm_provider",
         "recall.storage.store",
         "recall.factory",
     },
     "service.py": {
-        "anthropic",
+        "litellm",
+        "openai",
         "telegram",
         "fastapi",
         "mcp",
         "sqlite3",
         "sqlite_vec",
         "recall.channels",
-        "recall.llm.claude",
+        "recall.llm.litellm_provider",
         "recall.storage.store",
         "recall.factory",
     },
-    "llm/base.py": {"anthropic"},
+    "llm/base.py": {"litellm", "openai"},
     "storage/base.py": {"sqlite3", "sqlite_vec"},
 }
 
@@ -150,10 +153,18 @@ def test_unknown_choices_name_what_is_available(tmp_path, field, kind):
         factory.build_service(settings)
 
 
-def test_settings_need_no_claude_key_for_another_provider(monkeypatch):
-    monkeypatch.setattr("recall.config.load_dotenv", lambda: None)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
-    monkeypatch.setenv("ALLOWED_USER_IDS", "1")
-    monkeypatch.setenv("RECALL_LLM_PROVIDER", "other")
-    assert Settings.from_env().llm_provider == "other"
+@pytest.mark.parametrize(
+    ("model", "key"),
+    [("anthropic/x", "ANTHROPIC_API_KEY"), ("gpt-4o-mini", "OPENAI_API_KEY")],
+)
+def test_a_models_missing_key_is_named(tmp_path, monkeypatch, model, key):
+    monkeypatch.delenv(key, raising=False)
+    settings = Settings("t", frozenset({1}), tmp_path, model=model, retrieval_model=model)
+    with pytest.raises(SystemExit, match=key):
+        factory.build_service(settings)
+
+
+def test_the_default_provider_builds_when_its_key_is_set(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "k")
+    service = factory.build_service(Settings("t", frozenset({1}), tmp_path))
+    assert isinstance(service.agent.llm, LiteLLMProvider)

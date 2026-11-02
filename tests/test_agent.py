@@ -1,10 +1,10 @@
 import json
 from datetime import UTC, datetime
-from types import SimpleNamespace
 
-import anthropic
 import httpx
+import openai
 import pytest
+from conftest import completion, fake_llm
 
 from recall.core.agent import (
     Agent,
@@ -16,39 +16,31 @@ from recall.core.agent import (
     summarize_row,
 )
 from recall.core.tools import TOOLS, Tools
-from recall.llm.claude import ClaudeLLM
 from recall.storage.store import REMINDERS
 
 NOW = datetime(2026, 11, 1, 10, 0, tzinfo=UTC)
 
 
 def text(value):
-    return SimpleNamespace(type="text", text=value)
+    return value
 
 
 def tool(tool_name, **tool_input):
-    return SimpleNamespace(
-        type="tool_use", id=f"call_{tool_name}", name=tool_name, input=tool_input
-    )
+    return (tool_name, tool_input)
 
 
 def response(*content, stop_reason=None):
-    if stop_reason is None:
-        stop_reason = "tool_use" if any(b.type == "tool_use" for b in content) else "end_turn"
-    return SimpleNamespace(
-        content=list(content),
-        stop_reason=stop_reason,
-        usage=SimpleNamespace(input_tokens=1, output_tokens=1),
-    )
+    words = "".join(item for item in content if isinstance(item, str))
+    calls = [item for item in content if isinstance(item, tuple)]
+    return completion(words, calls, stop_reason)
 
 
 class ScriptedClient:
     def __init__(self, *responses):
         self.responses = list(responses)
         self.calls = []
-        self.beta = SimpleNamespace(messages=SimpleNamespace(create=self._create))
 
-    def _create(self, **kwargs):
+    def complete(self, **kwargs):
         self.calls.append({**kwargs, "messages": list(kwargs["messages"])})
         item = self.responses.pop(0)
         if isinstance(item, Exception):
@@ -58,11 +50,11 @@ class ScriptedClient:
 
 def agent_with(*responses):
     client = ScriptedClient(*responses)
-    return Agent(ClaudeLLM(client), "claude-opus-5-5", "low"), client
+    return Agent(fake_llm(client), "claude-opus-5-5", "low"), client
 
 
 def tool_names(call):
-    return {schema["name"] for schema in call["tools"]}
+    return {schema["function"]["name"] for schema in call["tools"]}
 
 
 def notes_table(store):
@@ -149,8 +141,8 @@ def test_app_capture_refuses_tools_outside_its_list(store, name, arguments):
     notes_table(store)
     agent, client = agent_with(response(tool(name, **arguments)), response(text("Done.")))
     assert agent.capture(store, "x", NOW) == []
-    result = client.calls[1]["messages"][-1]["content"][0]
-    assert result["is_error"] and "private" not in result["content"]
+    result = client.calls[1]["messages"][-1]["content"]
+    assert result.startswith("Error:") and "private" not in result
     assert store.get_row("notes", 1)["body"] == "private"
 
 
@@ -158,7 +150,7 @@ def test_failed_app_capture_keeps_nothing(store):
     notes_table(store)
     agent, _ = agent_with(
         response(tool("add_row", table="notes", values={"body": "new"})),
-        response(text("cut"), stop_reason="max_tokens"),
+        response(text("cut"), stop_reason="length"),
     )
     with pytest.raises(TurnFailed):
         agent.capture(store, "new", NOW)
@@ -173,11 +165,7 @@ def test_photo_reaches_the_model_but_is_never_kept(store):
     )
     agent.respond(store, "[photo] lunch", NOW, image=b"jpeg-bytes")
     image, caption = client.calls[0]["messages"][-1]["content"]
-    assert image["source"] == {
-        "type": "base64",
-        "media_type": "image/jpeg",
-        "data": "anBlZy1ieXRlcw==",
-    }
+    assert image["image_url"]["url"] == "data:image/jpeg;base64,anBlZy1ieXRlcw=="
     assert caption["text"].endswith("[photo] lunch")
     assert "anBlZy1ieXRlcw" not in str(store.recent_messages())
     assert store.recent_messages()[0]["content"] == "[photo] lunch"
@@ -334,7 +322,7 @@ def test_prefetch_puts_likely_rows_in_the_first_message(store, expenses):
     store.add_row(expenses, {"item": "ferry ticket", "amount": 90})
     store.turn_id = None
     client = ScriptedClient(response(text("90 [expenses#1].")))
-    Agent(ClaudeLLM(client), "m", "low", prefetch=True).respond(store, "ferry ticket cost?", NOW)
+    Agent(fake_llm(client), "m", "low", prefetch=True).respond(store, "ferry ticket cost?", NOW)
     first = client.calls[0]["messages"][-1]["content"]
     assert "Likely entries" in first and "expenses#1" in first
 
@@ -342,8 +330,8 @@ def test_prefetch_puts_likely_rows_in_the_first_message(store, expenses):
 def test_prefetch_survives_an_embedding_outage_and_is_off_by_default(store, embedder, expenses):
     embedder.failing = True
     client = ScriptedClient(response(text("Nothing saved.")), response(text("Nothing saved.")))
-    Agent(ClaudeLLM(client), "m", "low", prefetch=True).respond(store, "ferry", NOW)
-    Agent(ClaudeLLM(client), "m", "low").respond(store, "ferry", NOW)
+    Agent(fake_llm(client), "m", "low", prefetch=True).respond(store, "ferry", NOW)
+    Agent(fake_llm(client), "m", "low").respond(store, "ferry", NOW)
     assert "Likely entries" not in client.calls[1]["messages"][-1]["content"]
 
 
@@ -353,9 +341,8 @@ def test_tool_errors_go_back_to_the_model(store):
         response(text("Done.")),
     )
     agent.respond(store, "x", NOW)
-    result = client.calls[1]["messages"][-1]["content"][0]
-    assert result["is_error"] is True
-    assert "missing" in result["content"]
+    result = client.calls[1]["messages"][-1]["content"]
+    assert result.startswith("Error:") and "missing" in result
 
 
 def test_bad_tool_arguments_are_a_tool_error(store):
@@ -364,7 +351,7 @@ def test_bad_tool_arguments_are_a_tool_error(store):
         response(text("Done.")),
     )
     agent.respond(store, "x", NOW)
-    assert client.calls[1]["messages"][-1]["content"][0]["is_error"] is True
+    assert client.calls[1]["messages"][-1]["content"].startswith("Error:")
 
 
 def test_every_tool_call_in_a_step_gets_one_result_message(store):
@@ -373,15 +360,15 @@ def test_every_tool_call_in_a_step_gets_one_result_message(store):
         response(text("Done.")),
     )
     agent.respond(store, "x", NOW)
-    assert len(client.calls[1]["messages"][-1]["content"]) == 2
+    assert [m["role"] for m in client.calls[1]["messages"][-2:]] == ["tool", "tool"]
 
 
 @pytest.mark.parametrize(
     "failure",
     [
-        response(text(""), stop_reason="refusal"),
-        response(text("par"), stop_reason="max_tokens"),
-        anthropic.APIConnectionError(request=httpx.Request("POST", "https://x")),
+        response(text(""), stop_reason="content_filter"),
+        response(text("par"), stop_reason="length"),
+        openai.APIConnectionError(request=httpx.Request("POST", "https://x")),
     ],
 )
 def test_failed_turn_rolls_back_writes(store, expenses, failure):
@@ -410,8 +397,8 @@ def test_conversation_carries_over_for_followups(store):
     agent.respond(store, "told Priya I'd get back to her", NOW)
     agent.respond(store, "tomorrow", NOW)
     messages = client.calls[1]["messages"]
-    assert [m["role"] for m in messages] == ["user", "assistant", "user"]
-    assert messages[1]["content"] == "Remind you? When?"
+    assert [m["role"] for m in messages] == ["system", "user", "assistant", "user"]
+    assert messages[2]["content"] == "Remind you? When?"
 
 
 def test_context_has_user_time_calendar_and_tables(store, expenses):

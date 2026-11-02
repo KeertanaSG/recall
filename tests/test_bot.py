@@ -6,6 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+from conftest import completion, fake_llm
 from telegram import Update
 from telegram.error import BadRequest, TelegramError
 
@@ -25,7 +26,6 @@ from recall.channels.telegram import (
 from recall.config import Settings
 from recall.core.agent import Reply
 from recall.core.nudges import Nudger
-from recall.llm.claude import ClaudeLLM
 from recall.service import RecallService
 from recall.storage.store import SqliteStoreProvider, Store, user_db_path
 
@@ -117,13 +117,8 @@ def test_nudge_runs_from_scan_to_a_sent_message_with_stop_button(tmp_path, embed
     verdict = json.dumps(
         {"nudges": [{"key": "loans#1", "message": "Arjun owes you.", "importance": 3}]}
     )
-    response = SimpleNamespace(
-        stop_reason="end_turn", content=[SimpleNamespace(type="text", text=verdict)]
-    )
-    client = SimpleNamespace(
-        beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **_: response))
-    )
-    service.nudger = Nudger(ClaudeLLM(client), "haiku")
+    client = SimpleNamespace(complete=lambda **_: completion(verdict))
+    service.nudger = Nudger(fake_llm(client), "haiku")
     with service.stores.open(1) as store:
         prefs = store.prefs()
         prefs.quiet_enabled = False

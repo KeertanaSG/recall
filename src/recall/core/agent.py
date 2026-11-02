@@ -263,5 +263,6 @@ class Agent:
                         results.append(ToolResult(call.id, tools.run(call.name, call.input)))
                 except ToolError as exc:
                     results.append(ToolResult(call.id, str(exc), True))
-            messages.append(self.llm.tool_results_message(results))
+            reply_message = self.llm.tool_results_message(results)
+            messages.extend(reply_message if isinstance(reply_message, list) else [reply_message])
         raise TurnFailed("The agent took too many steps.")

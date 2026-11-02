@@ -18,15 +18,15 @@ class Settings:
     allowed_user_ids: frozenset[int] | None  # None means anyone can use the bot.
     data_dir: Path = Path("data")
     default_timezone: str = "Asia/Kolkata"
-    model: str = "claude-haiku-5-5"
+    model: str = "anthropic/claude-haiku-5-5"
     effort: str = "low"
-    retrieval_model: str = "claude-haiku-5-5"
-    design_model: str = "claude-opus-5-5"
+    retrieval_model: str = "anthropic/claude-haiku-5-5"
+    design_model: str = "anthropic/claude-opus-5-5"
     max_reminders_per_day: int = 5
     max_messages_per_user_per_day: int = 30
     max_messages_per_day: int = 300
     prefetch: bool = True
-    llm_provider: str = "claude"
+    llm_provider: str = "litellm"
     embedder: str = "local"
     storage: str = "sqlite"
     api_requests_per_minute: int = 60
@@ -40,10 +40,7 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()
-        llm_provider = os.environ.get("RECALL_LLM_PROVIDER", "claude")
         required = ["TELEGRAM_BOT_TOKEN", "ALLOWED_USER_IDS"]
-        if llm_provider == "claude":
-            required.append("ANTHROPIC_API_KEY")
         missing = [name for name in required if not os.environ.get(name)]
         if missing:
             raise SystemExit(f"Missing required settings: {', '.join(missing)}. See .env.example.")
@@ -53,16 +50,18 @@ class Settings:
                 allowed_user_ids=parse_allowed_users(os.environ["ALLOWED_USER_IDS"]),
                 data_dir=Path(os.environ.get("RECALL_DATA_DIR", "data")),
                 default_timezone=os.environ.get("RECALL_DEFAULT_TIMEZONE", "Asia/Kolkata"),
-                model=os.environ.get("RECALL_MODEL", "claude-haiku-5-5"),
-                design_model=os.environ.get("RECALL_DESIGN_MODEL", "claude-opus-5-5"),
+                model=os.environ.get("RECALL_MODEL", "anthropic/claude-haiku-5-5"),
+                design_model=os.environ.get("RECALL_DESIGN_MODEL", "anthropic/claude-opus-5-5"),
                 effort=os.environ.get("RECALL_EFFORT", "low"),
-                retrieval_model=os.environ.get("RECALL_RETRIEVAL_MODEL", "claude-haiku-5-5"),
+                retrieval_model=os.environ.get(
+                    "RECALL_RETRIEVAL_MODEL", "anthropic/claude-haiku-5-5"
+                ),
                 max_reminders_per_day=int(os.environ.get("RECALL_MAX_REMINDERS_PER_DAY", "5")),
                 max_messages_per_user_per_day=int(
                     os.environ.get("RECALL_MAX_MESSAGES_PER_USER_PER_DAY", "30")
                 ),
                 max_messages_per_day=int(os.environ.get("RECALL_MAX_MESSAGES_PER_DAY", "300")),
-                llm_provider=llm_provider,
+                llm_provider=os.environ.get("RECALL_LLM_PROVIDER", "litellm"),
                 embedder=os.environ.get("RECALL_EMBEDDER", "local"),
                 storage=os.environ.get("RECALL_STORAGE", "sqlite"),
                 prefetch=os.environ.get("RECALL_PREFETCH", "true").lower() == "true",

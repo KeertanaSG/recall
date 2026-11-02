@@ -11,12 +11,16 @@ from recall.service import RecallService
 from recall.storage.base import Embedder, StoreProvider
 
 
-def _claude(settings: Settings) -> LLM:
-    import anthropic
+def _litellm(settings: Settings) -> LLM:
+    import litellm
 
-    from recall.llm.claude import ClaudeLLM
+    from recall.llm.litellm_provider import LiteLLMProvider
 
-    return ClaudeLLM(anthropic.Anthropic())
+    for model in {settings.model, settings.retrieval_model, settings.design_model}:
+        missing = litellm.validate_environment(model)["missing_keys"]
+        if missing:
+            raise SystemExit(f"{model} needs {', '.join(missing)}. See .env.example.")
+    return LiteLLMProvider()
 
 
 def _local_embedder(settings: Settings) -> Embedder:
@@ -31,7 +35,7 @@ def _sqlite(settings: Settings, embedder: Embedder) -> StoreProvider:
     return SqliteStoreProvider(settings, embedder)
 
 
-LLMS: dict[str, Callable[[Settings], LLM]] = {"claude": _claude}
+LLMS: dict[str, Callable[[Settings], LLM]] = {"litellm": _litellm}
 EMBEDDERS: dict[str, Callable[[Settings], Embedder]] = {"local": _local_embedder}
 STORES: dict[str, Callable[[Settings, Embedder], StoreProvider]] = {"sqlite": _sqlite}
 

@@ -29,7 +29,6 @@ from recall.factory import build_service
 from recall.logs import get_logger, setup, user_ref
 from recall.prompts import render
 from recall.service import RateLimited, RecallService
-from recall.storage.base import ToolError
 
 log = get_logger(__name__)
 
