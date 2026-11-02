@@ -30,6 +30,7 @@ recall-tokens = "recall.cli:tokens"
 dev = [
     "httpx>=0.28.1",
     "pytest>=8",
+    "pytest-cov>=7.1.0",
 ]
 
 [build-system]
@@ -41,3 +42,4 @@ packages = ["src/recall"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+addopts = "--cov=recall --cov-branch --cov-fail-under=100 --cov-report=term-missing:skip-covered"

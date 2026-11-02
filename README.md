@@ -26,22 +26,49 @@ don't do by default: exact answers from real data, sources you can verify, and s
 
 Telegram means there's no app to install, and saving something takes one message.
 
-## Quick start
+## Setup
 
 You need:
 
-- [uv](https://docs.astral.sh/uv/), which installs the right Python for you
+- [uv](https://docs.astral.sh/uv/), which installs the right Python for you, or Python 3.12+ and pip
 - An [Anthropic API key](https://console.anthropic.com/)
-- A bot token from [@BotFather](https://t.me/BotFather)
+- A bot token from [@BotFather](https://t.me/BotFather): send `/newbot` and follow the prompts
 - Your numeric Telegram user ID, from [@userinfobot](https://t.me/userinfobot)
+
+**1. Get the code and install it**
 
 ```sh
 git clone https://github.com/KeertanaSG/recall.git
 cd recall
 uv sync
-cp .env.example .env    # then fill in the three required values
+```
+
+Or with pip:
+
+```sh
+python3 -m venv .venv
+source .venv/bin/activate
+pip install --require-hashes -r requirements.txt
+pip install --no-deps .
+```
+
+**2. Add your keys**
+
+```sh
+cp .env.example .env
+```
+
+Fill in `TELEGRAM_BOT_TOKEN`, `ANTHROPIC_API_KEY` and `ALLOWED_USER_IDS` in `.env`. Everything else
+is optional. Recall ignores messages from anyone not in `ALLOWED_USER_IDS`.
+
+**3. Start the bot**
+
+```sh
 uv run recall
 ```
+
+With pip, run `recall` from the activated environment. The same applies to the other `uv run`
+commands in this README.
 
 When you see `Application started`, open your bot in Telegram and send `/start`. The first search
 downloads a small embedding model to `data/models/`. Logs go to the terminal and `data/logs/`.
@@ -50,7 +77,8 @@ To try it with sample data, stop the bot and run `uv run recall-demo`, which add
 entries with no model calls. Then send `/nudge` or `Tell me about Arjun`. Use `--fresh` to back up and
 replace existing memory.
 
-Run the tests with `uv run pytest`. They need no network or API keys.
+Run the tests with `uv run pytest`. They need no network or API keys, and they fail if line or
+branch coverage drops below 100%. Real processes check that concurrent writes aren't lost.
 
 ## Architecture
 
@@ -150,7 +178,9 @@ Both evals use synthetic data with real Claude calls, and results are saved in
 | Recall's hybrid search, 2 runs | 47/48 | 18/20 |
 | Hybrid with local search first, the default | 24/24 | 9/10 |
 
-Searching locally before the first model call cut the median answer from about 4.8 seconds to 2.8.
+Searching locally before the first model call also cuts model steps. The default setup answered in
+a median of 2.8 seconds in one run and 3.9 in a busier hour, because API speed changes through the
+day. Compare runs from the same hour.
 Plain vector search and the first hybrid row come from earlier runs, and all of these used about
 0.06 cents per question or less.
 
@@ -173,6 +203,10 @@ uv run python evals/run_nudges.py
 
 These call the Anthropic API and need a filled-in `.env`.
 
+**Prompt injection:** `evals/run_injection.py` hides orders in notes, names, a photo, `remember` text
+and the nudge judge's input. All 9 attacks were resisted on real Claude, with no data changed. This
+is one run of a small set, so it shows the defences work, not that they're unbreakable.
+
 ## Key decisions
 
 | Decision | Why | Trade-off |
@@ -180,6 +214,7 @@ These call the Anthropic API and need a filled-in `.env`.
 | Haiku for most steps, Opus only for table design | Tables outlive the message that created them, and everything else needs to be cheap | Saves that create a table are slower |
 | One SQLite file per user | Free, fast, strong isolation, and `/export` and delete stay simple | Limited to one server. `MemoryStore` keeps a move to Postgres contained |
 | Interfaces only where swapping is realistic | The LLM, embedder, storage and channels can change without touching product logic | A little more code, and only one real implementation of each so far |
+| The Claude SDK over LiteLLM | LiteLLM matched its accuracy, but answers were about 0.9 seconds slower in a same-hour test, and its PyPI package was compromised twice in 2026 | Changing provider means writing a new `LLM` class |
 | Local embeddings | No API cost, and note text isn't sent to an embedding provider | Adds memory use to each process |
 | Hosted models over a local LLM | A local Qwen3 benchmark stalled for hours | Message text goes to Anthropic |
 | No delete tool for the agent | Text inside a saved note can't trigger a delete, because deleting takes a tap | Bulk delete needs its own flow |
@@ -275,7 +310,6 @@ records.
 
 ## Limitations
 
-- The injection and concurrent-write tests are still to come.
 - Evals use synthetic data, and photo capture has mostly been tested on a generated receipt.
 - A save that creates a new table can take 10 to 20 seconds.
 - English only.
