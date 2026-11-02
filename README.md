@@ -317,6 +317,14 @@ records.
 
 ## What's next
 
-The full plan is in [docs/ROADMAP.md](docs/ROADMAP.md), and the original product thinking is in
-[docs/PRD.md](docs/PRD.md). The next steps are a small server with encrypted backups, then larger
-evals and a trained local reranker to cut model costs.
+The next steps are a small server with encrypted backups, then larger evals and a trained local
+reranker to cut model costs.
+
+## More docs
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the code is organized and how a message moves
+  through it
+- [docs/DESIGN.md](docs/DESIGN.md): why it's built this way, and its known weak spots
+- [docs/ROADMAP.md](docs/ROADMAP.md): what exists, how it was tested and the full plan
+- [docs/PRD.md](docs/PRD.md): the product requirements
+- [CHANGELOG.md](CHANGELOG.md): what changed in each pull request
