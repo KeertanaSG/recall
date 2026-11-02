@@ -70,16 +70,34 @@ flowchart TD
 Every client goes through `RecallService`, so permission checks live in one place and no client
 touches a database directly.
 
-| File | Job |
-| --- | --- |
-| [`agent.py`](src/recall/agent.py) | The agent loop, photos, and checking citations against the database |
-| [`tools.py`](src/recall/tools.py) | What the agent can do. There is deliberately no delete tool |
-| [`retrieval.py`](src/recall/retrieval.py) | LangGraph search: plan, retrieve, grade |
-| [`schema_design.py`](src/recall/schema_design.py) | Designs a table for each new subject |
-| [`nudges.py`](src/recall/nudges.py) | Finds unfinished business and decides whether to speak up |
-| [`service.py`](src/recall/service.py) | The one path to a user's memory |
-| [`auth.py`](src/recall/auth.py) | API tokens, scopes, rate limits and the audit log |
-| [`store.py`](src/recall/store.py) | Tables, history, undo, search and reminders |
+```
+src/recall/
+  channels/   Telegram, HTTP API and MCP server: thin layers over the service
+  core/       Product logic: agent, tools, retrieval, table design, nudges, reminder rules
+  llm/        base.py is the interface, claude.py is the provider
+  storage/    base.py is the interface, store.py is SQLite, embeddings.py is local embeddings
+  service.py  The one path to a user's memory
+  factory.py  The one place that chooses implementations
+  auth.py     API tokens, scopes, rate limits and the audit log
+```
+
+`core` depends only on the interfaces, so it never imports Anthropic, Telegram or SQLite.
+[`tests/test_architecture.py`](tests/test_architecture.py) enforces this, and runs the agent on a
+second, fake provider with a different message format to prove the seam works.
+
+### Swapping parts
+
+| To change | Implement | Then |
+| --- | --- | --- |
+| The LLM provider | `LLM` in [`llm/base.py`](src/recall/llm/base.py) | Register it in [`factory.py`](src/recall/factory.py) and set `RECALL_LLM_PROVIDER` |
+| The models | Nothing | Set `RECALL_MODEL`, `RECALL_RETRIEVAL_MODEL` or `RECALL_DESIGN_MODEL` |
+| The embedder | `Embedder` in [`storage/embeddings.py`](src/recall/storage/embeddings.py) | Register it and set `RECALL_EMBEDDER` |
+| The database | `MemoryStore` and `StoreProvider` in [`storage/base.py`](src/recall/storage/base.py) | Register it and set `RECALL_STORAGE` |
+| The chat app | A new file in `channels/`, calling `RecallService` | Add a start command |
+
+Only Claude, local embeddings and SQLite exist today. A new provider also has to pass the evals,
+because prompts are tuned for the current models. Embeddings are stored at a fixed size of 384, so a
+new embedder with a different size needs a re-embed.
 
 ### How the main features work
 
@@ -155,7 +173,8 @@ These call the Anthropic API and need a filled-in `.env`.
 | Decision | Why | Trade-off |
 | --- | --- | --- |
 | Haiku for most steps, Opus only for table design | Tables outlive the message that created them, and everything else needs to be cheap | Saves that create a table are slower |
-| One SQLite file per user | Free, fast, strong isolation, and `/export` and delete stay simple | Limited to one server. `StoreProvider` keeps a move to Postgres contained |
+| One SQLite file per user | Free, fast, strong isolation, and `/export` and delete stay simple | Limited to one server. `MemoryStore` keeps a move to Postgres contained |
+| Interfaces only where swapping is realistic | The LLM, embedder, storage and channels can change without touching product logic | A little more code, and only one real implementation of each so far |
 | Local embeddings | No API cost, and note text isn't sent to an embedding provider | Adds memory use to each process |
 | Hosted models over a local LLM | A local Qwen3 benchmark stalled for hours | Message text goes to Anthropic |
 | No delete tool for the agent | Text inside a saved note can't trigger a delete, because deleting takes a tap | Bulk delete needs its own flow |

@@ -28,7 +28,7 @@ The targets are proposals, and the 95% figure should be confirmed after the firs
 
 ## Built today
 
-The core product exists and has 191 passing automated tests. Its first full live Telegram test
+The core product exists and has 205 passing automated tests. Its first full live Telegram test
 passed on 2026-11-02.
 
 | Feature | What it does | Tested with |
@@ -53,6 +53,7 @@ passed on 2026-11-02.
 | Photo capture | Turns a photo into rows, with each receipt item saved separately. The photo is never stored | Real Claude with a generated receipt, automated tests |
 | Person briefs | Gathers everything about a name across tables into one connected answer | Real Claude on demo data |
 | Demo seed | `recall-demo` adds 36 backdated entries with no model calls | Automated tests, real run |
+| Swappable parts | LLM, embedder, storage and channels sit behind interfaces, chosen in `factory.py` | Automated boundary tests, a fake second provider |
 | Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
 
 Search-first retrieval is on by default, and scored 24/24 and 9/10 with a 2.8 second median. Crisis
@@ -182,7 +183,7 @@ These stay parked until real use shows they're worth the cost.
 | Cheaper or open models | Haiku is already close to the cheapest, and a local Qwen3 test was much slower |
 | WhatsApp or iMessage | WhatsApp policy and fees, and no official iMessage bot API |
 | Shared memories | Non-goal in the PRD |
-| Hosted Postgres with pgvector | One SQLite file per user is the current decision. Move when Recall needs more than one server, which only means replacing `StoreProvider` and rewriting `store.py` |
+| Hosted Postgres with pgvector | One SQLite file per user is the current decision. Move when Recall needs more than one server, which means a new `MemoryStore` and `StoreProvider` |
 | Scale past 1,000 users | Needs webhooks, separate workers and storage shards |
 
 Passive recording of calls, screens or conversations stays out for good, as do passwords, bank
