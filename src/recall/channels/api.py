@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 
-from recall.auth import Identity
+from recall.access import Identity
 from recall.config import Settings
 from recall.factory import build_service
 from recall.service import (

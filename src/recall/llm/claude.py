@@ -14,28 +14,19 @@ PHOTO_TYPE = "image/jpeg"  # Telegram converts every photo to JPEG.
 STOPS = {"tool_use": Stop.TOOL_USE, "max_tokens": Stop.CUT_OFF, "refusal": Stop.REFUSED}
 
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
-FAST_BETA = "fast-mode-2026-02-01"
 
 
-def create_message(client: anthropic.Anthropic, model: str, fast: bool, **kwargs):
-    # Haiku has no server-side fallback or fast mode, and the API rejects both for it.
-    betas = []
-    if "haiku" not in model:
-        betas.append(FALLBACK_BETA)
-        kwargs["fallbacks"] = "default"
-    create = client.beta.messages.create
-    if fast and "haiku" not in model:
-        try:
-            return create(model=model, speed="fast", betas=[*betas, FAST_BETA], **kwargs)
-        except anthropic.RateLimitError:
-            log.warning("Fast mode is rate limited, using standard speed")
-    return create(model=model, betas=betas, **kwargs)
+def create_message(client: anthropic.Anthropic, model: str, **kwargs):
+    if "haiku" in model:  # Haiku has no server-side fallback, and the API rejects it.
+        return client.beta.messages.create(model=model, betas=[], **kwargs)
+    return client.beta.messages.create(
+        model=model, betas=[FALLBACK_BETA], fallbacks="default", **kwargs
+    )
 
 
 class ClaudeLLM:
-    def __init__(self, client: anthropic.Anthropic, fast: bool = False):
+    def __init__(self, client: anthropic.Anthropic):
         self.client = client
-        self.fast = fast
 
     def chat(
         self,
@@ -53,7 +44,6 @@ class ClaudeLLM:
             response = create_message(
                 self.client,
                 model,
-                self.fast,
                 max_tokens=16000,
                 system=blocks,
                 tools=tools,
@@ -84,11 +74,13 @@ class ClaudeLLM:
             response = create_message(
                 self.client,
                 model,
-                False,
                 max_tokens=4000,
                 system=system,
                 messages=[{"role": "user", "content": prompt}],
-                output_config={"effort": "low", "format": {"type": "json_schema", "schema": schema}},
+                output_config={
+                    "effort": "low",
+                    "format": {"type": "json_schema", "schema": schema},
+                },
             )
         except anthropic.APIError as exc:
             raise LLMError(str(exc)) from exc
@@ -113,7 +105,11 @@ class ClaudeLLM:
     def tool_results_message(self, results: list[ToolResult]) -> dict:
         content = []
         for result in results:
-            block = {"type": "tool_result", "tool_use_id": result.call_id, "content": result.content}
+            block = {
+                "type": "tool_result",
+                "tool_use_id": result.call_id,
+                "content": result.content,
+            }
             if result.is_error:
                 block["is_error"] = True
             content.append(block)

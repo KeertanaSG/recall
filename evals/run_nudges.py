@@ -10,7 +10,7 @@ import json
 import sys
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import anthropic
@@ -22,16 +22,21 @@ from recall.config import Settings  # noqa: E402
 from recall.core.nudges import Nudger, find_candidates  # noqa: E402
 from recall.core.retrieval import result_key  # noqa: E402
 from recall.llm.claude import ClaudeLLM  # noqa: E402
-from recall.storage.embeddings import LocalEmbedder  # noqa: E402
-from recall.storage.store import Store  # noqa: E402
+from recall.storage.store import (
+    LocalEmbedder,  # noqa: E402
+    Store,  # noqa: E402
+)
 
 RESULTS = Path(__file__).parent / "results" / "nudges.jsonl"
-NOW = datetime(2026, 11, 2, 6, 30, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 2, 6, 30, tzinfo=UTC)
 
 TABLES = {
     "loans": ("Money lent to people", {"person": "text", "amount": "real", "repaid": "boolean"}),
     "tasks": ("Things to do", {"task": "text", "due_on": "date", "done": "boolean"}),
-    "promises": ("Promises made to people", {"person": "text", "promise": "text", "kept": "boolean"}),
+    "promises": (
+        "Promises made to people",
+        {"person": "text", "promise": "text", "kept": "boolean"},
+    ),
     "borrowed": ("Things borrowed", {"item": "text", "owner": "text", "returned": "boolean"}),
     "movies": ("Films watched", {"title": "text", "rating": "real", "is_rewatch": "boolean"}),
     "meals": ("Meals out", {"dish": "text", "place": "text", "rating": "real"}),
@@ -103,14 +108,17 @@ def main() -> None:
     llm = ClaudeLLM(anthropic.Anthropic())
     nudger = Nudger(llm, settings.retrieval_model, max_nudges=len(ROWS))
 
-    with tempfile.TemporaryDirectory() as folder, Store(
-        Path(folder) / "eval.sqlite", embedder, "Asia/Kolkata"
-    ) as store:
+    with (
+        tempfile.TemporaryDirectory() as folder,
+        Store(Path(folder) / "eval.sqlite", embedder, "Asia/Kolkata") as store,
+    ):
         expected = build(store)
         candidates = find_candidates(store, NOW)
         keys = {result_key(c) for c in candidates}
-        print(f"Detected {len(candidates)} of {len(ROWS)} rows, covering "
-              f"{len(keys & expected)}/{len(expected)} real open items, with no model call")
+        print(
+            f"Detected {len(candidates)} of {len(ROWS)} rows, covering "
+            f"{len(keys & expected)}/{len(expected)} real open items, with no model call"
+        )
         print("Detector missed:", sorted(expected - keys) or "nothing")
         runs = []
         for run in range(args.runs):
@@ -126,7 +134,7 @@ def main() -> None:
     RESULTS.parent.mkdir(exist_ok=True)
     with RESULTS.open("a") as file:
         record = {
-            "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "at": datetime.now(UTC).isoformat(timespec="seconds"),
             "model": settings.retrieval_model,
             "rows": len(ROWS),
             "open_items": len(expected),

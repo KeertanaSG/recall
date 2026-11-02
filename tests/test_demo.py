@@ -1,14 +1,14 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
+from recall.cli import back_up, demo, seed
 from recall.config import Settings
-from recall.demo import back_up, main, seed
 from recall.core.nudges import MAX_AGE, MIN_AGE, find_candidates
 from recall.core.retrieval import result_key
 from recall.storage.store import Store, user_db_path
 
-NOW = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 2, 9, 0, tzinfo=UTC)
 
 
 def test_seed_makes_open_items_for_nudges_and_leaves_resolved_ones_for_the_judge(store):
@@ -35,10 +35,10 @@ def test_refuses_to_replace_memory_without_fresh(tmp_path, embedder, monkeypatch
     with Store(user_db_path(tmp_path, 1), embedder, "Asia/Kolkata") as store:
         store.create_table("mine", "Mine", [{"name": "body", "type": "text"}])
     config = Settings("t", frozenset({1}), tmp_path)
-    monkeypatch.setattr("recall.demo.Settings.from_env", lambda: config)
+    monkeypatch.setattr("recall.cli.Settings.from_env", lambda: config)
     monkeypatch.setattr("sys.argv", ["recall-demo"])
     with pytest.raises(SystemExit, match="isn't empty"):
-        main()
+        demo()
     with Store(user_db_path(tmp_path, 1), embedder, "Asia/Kolkata") as store:
         assert [table["name"] for table in store.tables()] == ["mine"]
 

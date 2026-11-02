@@ -1,12 +1,12 @@
 import asyncio
 import json
 from collections import defaultdict
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from recall.llm.claude import ClaudeLLM
+from recall.access import Limit
 from recall.channels.telegram import (
     collect_due,
     deliver_due,
@@ -17,19 +17,20 @@ from recall.channels.telegram import (
     reminder_keyboard,
     split_message,
 )
-from recall.core.agent import Reply
 from recall.config import Settings
+from recall.core.agent import Reply
 from recall.core.nudges import Nudger
+from recall.llm.claude import ClaudeLLM
 from recall.service import RecallService
-from recall.storage.store import SqliteStoreProvider
-from recall.storage.store import Store, user_db_path
-from recall.usage import Limit
+from recall.storage.store import SqliteStoreProvider, Store, user_db_path
 
-NOON_IST = datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc)
+NOON_IST = datetime(2026, 11, 1, 6, 30, tzinfo=UTC)
 
 
 def make_service(tmp_path: Path, embedder, limit: int = 5) -> RecallService:
-    config = Settings("token", frozenset({1}), tmp_path, "Asia/Kolkata", max_reminders_per_day=limit)
+    config = Settings(
+        "token", frozenset({1}), tmp_path, "Asia/Kolkata", max_reminders_per_day=limit
+    )
     return RecallService(config, None, SqliteStoreProvider(config, embedder), None, None)
 
 
@@ -47,7 +48,7 @@ def test_collect_due_applies_the_daily_limit_after_sends(tmp_path, embedder):
 
 def test_overnight_reminder_waits_for_morning(tmp_path, embedder):
     service = make_service(tmp_path, embedder)
-    night = datetime(2026, 11, 1, 18, 0, tzinfo=timezone.utc)  # 23:30 in India
+    night = datetime(2026, 11, 1, 18, 0, tzinfo=UTC)  # 23:30 in India
     with Store(user_db_path(tmp_path, 1), embedder, "Asia/Kolkata") as store:
         store.add_reminder("x", night, "deadline", False)
     assert collect_due(service, 1, night) == []
@@ -106,11 +107,17 @@ def test_nudge_runs_from_scan_to_a_sent_message_with_stop_button(tmp_path, embed
     with service.stores.open(1) as store:
         store.create_table("loans", "Loans", [{"name": "person", "type": "text"}])
         row_id = store.add_row("loans", {"person": "Arjun"})
-        saved = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat(timespec="seconds")
+        saved = (datetime.now(UTC) - timedelta(days=30)).isoformat(timespec="seconds")
         store.conn.execute("UPDATE loans SET created_at = ? WHERE id = ?", (saved, row_id))
-    verdict = json.dumps({"nudges": [{"key": "loans#1", "message": "Arjun owes you.", "importance": 3}]})
-    response = SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=verdict)])
-    client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **_: response)))
+    verdict = json.dumps(
+        {"nudges": [{"key": "loans#1", "message": "Arjun owes you.", "importance": 3}]}
+    )
+    response = SimpleNamespace(
+        stop_reason="end_turn", content=[SimpleNamespace(type="text", text=verdict)]
+    )
+    client = SimpleNamespace(
+        beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **_: response))
+    )
     service.nudger = Nudger(ClaudeLLM(client), "haiku")
     with service.stores.open(1) as store:
         prefs = store.prefs()
@@ -122,7 +129,7 @@ def test_nudge_runs_from_scan_to_a_sent_message_with_stop_button(tmp_path, embed
     (user_id, text), kwargs = context.bot.send_message.await_args
     assert user_id == 1 and text.startswith("Arjun owes you.\n\nFrom your notes\nArjun")
     assert kwargs["reply_markup"].inline_keyboard[1][0].text == "Stop nudge reminders"
-    assert asyncio.run(deliver_due(context, 1, datetime.now(timezone.utc))) == 0
+    assert asyncio.run(deliver_due(context, 1, datetime.now(UTC))) == 0
 
 
 def seeded_notes(service, count):

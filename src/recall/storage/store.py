@@ -13,20 +13,31 @@ import math
 import os
 import re
 import sqlite3
+import threading
 import time
 import zipfile
 from contextlib import contextmanager
 from dataclasses import asdict
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
 import sqlite_vec
+from fastembed import TextEmbedding
 
 from recall.config import Settings
-from recall.storage.base import COLUMN_TYPES, REMINDERS, ROW_METADATA, Prefs, ToolError
-from recall.storage.embeddings import EMBEDDING_DIM, Embedder, EmbeddingError
+from recall.storage.base import (
+    COLUMN_TYPES,
+    EMBEDDING_DIM,
+    REMINDERS,
+    ROW_METADATA,
+    Embedder,
+    EmbeddingError,
+    InputType,
+    Prefs,
+    ToolError,
+)
 
 log = logging.getLogger(__name__)
 
@@ -38,6 +49,8 @@ SIMILAR_COLUMNS = 0.6
 QUERY_ROW_LIMIT = 200
 QUERY_SECONDS = 2.0
 MESSAGE_WINDOW = 12
+
+EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"
 
 SCHEMA = f"""
 CREATE TABLE IF NOT EXISTS _tables (
@@ -105,7 +118,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS _vectors
 
 
 def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+    return datetime.now(UTC).isoformat(timespec="seconds")
 
 
 def quote_identifier(name: str) -> str:
@@ -182,6 +195,30 @@ def _read_only_authorizer(action, arg1, arg2, _db, _trigger):
     return sqlite3.SQLITE_DENY
 
 
+class LocalEmbedder:
+    """Runs on this machine, so no key is needed and text never leaves it."""
+
+    def __init__(self, cache_dir: Path):
+        self.cache_dir = cache_dir
+        self.lock = threading.Lock()
+        self.loaded: TextEmbedding | None = None
+
+    def _model(self) -> TextEmbedding:
+        """Load on first use, so a process that never searches saves the memory."""
+        with self.lock:
+            if self.loaded is None:
+                self.loaded = TextEmbedding(EMBEDDING_MODEL, cache_dir=str(self.cache_dir))
+            return self.loaded
+
+    def embed(self, texts: list[str], input_type: InputType) -> list[list[float]]:
+        model = self._model()
+        embed = model.query_embed if input_type == "query" else model.passage_embed
+        try:
+            return [vector.tolist() for vector in embed(texts)]
+        except Exception as exc:
+            raise EmbeddingError(str(exc)) from exc
+
+
 class Store:
     def __init__(self, path: Path, embedder: Embedder, default_timezone: str):
         self.path = path
@@ -222,7 +259,9 @@ class Store:
 
     def tables(self) -> list[dict]:
         tables = []
-        for row in self.conn.execute("SELECT name, description FROM _tables ORDER BY name").fetchall():
+        for row in self.conn.execute(
+            "SELECT name, description FROM _tables ORDER BY name"
+        ).fetchall():
             columns = self.conn.execute(
                 """SELECT name, type, description, required FROM _columns
                    WHERE table_name = ? ORDER BY rowid""",
@@ -291,7 +330,13 @@ class Store:
                 """INSERT INTO _columns (table_name, name, type, description, required)
                    VALUES (?, ?, ?, ?, ?)""",
                 [
-                    (name, c["name"], c["type"], c.get("description", ""), int(bool(c.get("required"))))
+                    (
+                        name,
+                        c["name"],
+                        c["type"],
+                        c.get("description", ""),
+                        int(bool(c.get("required"))),
+                    )
                     for c in columns
                 ],
             )
@@ -360,7 +405,9 @@ class Store:
     def rows_not_marked(self, limit: int) -> list[list[dict]]:
         """One ranking per yes/no column, oldest first, of rows it isn't yet true for."""
         rankings = []
-        for table in [row["name"] for row in self.conn.execute("SELECT name FROM _tables").fetchall()]:
+        for table in [
+            row["name"] for row in self.conn.execute("SELECT name FROM _tables").fetchall()
+        ]:
             for column in self.boolean_columns(table):
                 name = quote_identifier(column)
                 rows = self.conn.execute(
@@ -373,7 +420,8 @@ class Store:
 
     def _required_columns(self, table: str) -> list[str]:
         rows = self.conn.execute(
-            "SELECT name FROM _columns WHERE table_name = ? AND required = 1 ORDER BY rowid", (table,)
+            "SELECT name FROM _columns WHERE table_name = ? AND required = 1 ORDER BY rowid",
+            (table,),
         ).fetchall()
         return [row["name"] for row in rows]
 
@@ -421,9 +469,10 @@ class Store:
         self.sync_embeddings()
 
     def get_row(self, table: str, row_id: int) -> dict | None:
-        if table != REMINDERS and not self.conn.execute(
-            "SELECT 1 FROM _tables WHERE name = ?", (table,)
-        ).fetchone():
+        if (
+            table != REMINDERS
+            and not self.conn.execute("SELECT 1 FROM _tables WHERE name = ?", (table,)).fetchone()
+        ):
             return None
         row = self.conn.execute(
             f"SELECT * FROM {quote_identifier(table)} WHERE id = ?", (row_id,)
@@ -565,9 +614,7 @@ class Store:
                 )
                 self._drop_embedding(target_table, target_id)
             self.conn.execute("DELETE FROM _messages")
-            self.conn.execute(
-                "DELETE FROM _turns WHERE id NOT IN (SELECT turn_id FROM _history)"
-            )
+            self.conn.execute("DELETE FROM _turns WHERE id NOT IN (SELECT turn_id FROM _history)")
         self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return True
 
@@ -640,6 +687,14 @@ class Store:
             )
         return results
 
+    def _text_columns(self) -> dict[str, list[str]]:
+        searchable = {REMINDERS: ["text", "source_text"]}
+        for row in self.conn.execute("SELECT name FROM _tables").fetchall():
+            columns = self._columns(row["name"])
+            text = [name for name, kind in columns.items() if kind == "text"]
+            searchable[row["name"]] = ["source_text", *text]
+        return searchable
+
     def keyword_search(
         self, terms: list[str], limit: int = 15, table: str | None = None, whole_word: bool = False
     ) -> list[dict]:
@@ -651,26 +706,30 @@ class Store:
         ]
         if not patterns:
             return []
-        searchable = {REMINDERS: ["text", "source_text"]}
-        for name in (row["name"] for row in self.conn.execute("SELECT name FROM _tables").fetchall()):
-            columns = self._columns(name)
-            searchable[name] = ["source_text", *(c for c, kind in columns.items() if kind == "text")]
-
+        searchable = self._text_columns()
         results = []
         for name, columns in searchable.items():
             if table and name != table:
                 continue
             clause = " OR ".join(
-                f"{quote_identifier(column)} LIKE ? ESCAPE '\\'" for column in columns
+                f"{quote_identifier(column)} LIKE ? ESCAPE '\\'"
+                for column in columns
                 for _ in patterns
             )
             rows = self.conn.execute(
                 f"SELECT * FROM {quote_identifier(name)} WHERE {clause} ORDER BY id DESC LIMIT ?",
-                (*(pattern for _ in columns for pattern in patterns), limit * 5 if whole_word else limit),
+                (
+                    *(pattern for _ in columns for pattern in patterns),
+                    limit * 5 if whole_word else limit,
+                ),
             ).fetchall()
             if whole_word:
                 words = re.compile("|".join(rf"\b{re.escape(term)}\b" for term in terms), re.I)
-                rows = [row for row in rows if any(words.search(str(value)) for value in dict(row).values())]
+                rows = [
+                    row
+                    for row in rows
+                    if any(words.search(str(value)) for value in dict(row).values())
+                ]
             results.extend({"table": name, "row": self._public_row(row)} for row in rows)
         return results[:limit]
 
@@ -696,7 +755,9 @@ class Store:
                     "INSERT INTO _vectors (rowid, embedding) VALUES (?, ?)",
                     (entry["id"], sqlite_vec.serialize_float32(vector)),
                 )
-                self.conn.execute("UPDATE _embeddings SET embedded = 1 WHERE id = ?", (entry["id"],))
+                self.conn.execute(
+                    "UPDATE _embeddings SET embedded = 1 WHERE id = ?", (entry["id"],)
+                )
 
     def _mark_stale(self, table: str, row_id: int) -> None:
         self.conn.execute(
@@ -745,16 +806,10 @@ class Store:
     ) -> int:
         if linked_table and self.get_row(linked_table, linked_id) is None:
             raise ToolError(f"No row {linked_table}#{linked_id} to link to.")
-        when = remind_at.astimezone(timezone.utc).isoformat(timespec="seconds")
-        # The model sometimes sets the same reminder twice for one message.
-        existing = source_text and self.conn.execute(
-            f"""SELECT id FROM {REMINDERS} WHERE status = 'pending' AND remind_at = ? AND kind = ?
-                AND source_text = ? AND (linked_id IS NULL OR ? IS NULL
-                OR (linked_table = ? AND linked_id = ?))""",
-            (when, kind, source_text, linked_id, linked_table, linked_id),
-        ).fetchone()
+        when = remind_at.astimezone(UTC).isoformat(timespec="seconds")
+        existing = self._same_reminder(when, kind, source_text, linked_table, linked_id)
         if existing:
-            return existing["id"]
+            return existing
         now = utc_now()
         with self._transaction():
             row_id = self._insert(
@@ -773,6 +828,20 @@ class Store:
             )
         self.sync_embeddings()
         return row_id
+
+    def _same_reminder(
+        self, when: str, kind: str, source_text: str, table: str | None, row_id: int | None
+    ) -> int | None:
+        """The model sometimes sets the same reminder twice for one message."""
+        if not source_text:
+            return None
+        row = self.conn.execute(
+            f"""SELECT id FROM {REMINDERS}
+                WHERE status = 'pending' AND remind_at = ? AND kind = ? AND source_text = ?
+                AND (linked_id IS NULL OR ? IS NULL OR (linked_table = ? AND linked_id = ?))""",
+            (when, kind, source_text, row_id, table, row_id),
+        ).fetchone()
+        return row["id"] if row else None
 
     def cancel_reminder(self, reminder_id: int, reason: str) -> None:
         reminder = self.get_row(REMINDERS, reminder_id)
@@ -799,7 +868,7 @@ class Store:
         rows = self.conn.execute(
             f"""SELECT * FROM {REMINDERS} WHERE status = 'pending' AND remind_at <= ?
                 ORDER BY remind_at, id""",
-            (now.astimezone(timezone.utc).isoformat(timespec="seconds"),),
+            (now.astimezone(UTC).isoformat(timespec="seconds"),),
         ).fetchall()
         return [dict(row) for row in rows]
 
@@ -807,7 +876,7 @@ class Store:
         """Count proactive reminders sent since a moment. Requested ones don't count."""
         return self.conn.execute(
             f"SELECT COUNT(*) FROM {REMINDERS} WHERE explicit = 0 AND sent_at >= ?",
-            (moment.astimezone(timezone.utc).isoformat(timespec="seconds"),),
+            (moment.astimezone(UTC).isoformat(timespec="seconds"),),
         ).fetchone()[0]
 
     def mark_sent(self, reminder_id: int) -> None:
@@ -827,7 +896,7 @@ class Store:
         self.conn.execute(
             f"""UPDATE {REMINDERS} SET status = 'pending', sent_at = NULL, remind_at = ?,
                 updated_at = ? WHERE id = ?""",
-            (until.astimezone(timezone.utc).isoformat(timespec="seconds"), utc_now(), reminder_id),
+            (until.astimezone(UTC).isoformat(timespec="seconds"), utc_now(), reminder_id),
         )
 
     def mute_kind(self, kind: str) -> None:

@@ -18,7 +18,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
-from recall.auth import Identity, TokenStore
+from recall.access import Identity, TokenStore
 from recall.config import Settings
 from recall.factory import build_service
 from recall.service import (
@@ -39,7 +39,14 @@ INSTRUCTIONS = (
 )
 
 
-EXPECTED_ERRORS = (PermissionError, AccessDenied, NotFound, RateLimited, RecallToolError, Unavailable)
+EXPECTED_ERRORS = (
+    PermissionError,
+    AccessDenied,
+    NotFound,
+    RateLimited,
+    RecallToolError,
+    Unavailable,
+)
 
 
 class BearerVerifier:

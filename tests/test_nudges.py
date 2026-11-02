@@ -1,15 +1,14 @@
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
 
+from recall.core.nudges import MAX_NUDGES, NUDGE, Nudger, find_candidates, select_sendable
 from recall.llm.claude import ClaudeLLM
-from recall.core.nudges import MAX_NUDGES, NUDGE, Nudger, find_candidates
-from recall.core.reminders import select_sendable
 from recall.storage.store import Prefs
 
-NOW = datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 1, 6, 30, tzinfo=UTC)
 
 
 class Client:
@@ -43,7 +42,11 @@ def loans(store):
     store.create_table(
         "loans",
         "Money lent to people",
-        [{"name": "person", "type": "text"}, {"name": "amount", "type": "real"}, {"name": "repaid", "type": "boolean"}],
+        [
+            {"name": "person", "type": "text"},
+            {"name": "amount", "type": "real"},
+            {"name": "repaid", "type": "boolean"},
+        ],
     )
     store.turn_id = None
     return store
@@ -149,7 +152,7 @@ def test_failed_judge_stays_unstamped_so_it_retries(loans):
 def test_nudges_obey_quiet_hours_and_the_daily_limit(loans):
     nudge = {"explicit": 0, "kind": NUDGE}
     prefs = Prefs("Asia/Kolkata")
-    night = datetime(2026, 11, 1, 18, 0, tzinfo=timezone.utc)
+    night = datetime(2026, 11, 1, 18, 0, tzinfo=UTC)
     assert select_sendable([nudge], night, prefs, 0, 5) == []
     assert select_sendable([nudge], NOW, prefs, 5, 5) == []
     assert select_sendable([nudge], NOW, prefs, 0, 5) == [nudge]

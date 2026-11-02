@@ -5,7 +5,7 @@ import io
 import logging
 from collections import defaultdict
 from collections.abc import Awaitable, Callable
-from datetime import datetime, time, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
 from functools import wraps
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -21,10 +21,10 @@ from telegram.ext import (
     filters,
 )
 
-from recall.core.agent import TurnFailed, row_date, short_date, summarize_row
-from recall.auth import OWNER, telegram_identity
+from recall.access import OWNER, telegram_identity
 from recall.config import Settings
-from recall.core.reminders import select_sendable, start_of_local_day
+from recall.core.agent import TurnFailed, row_date, short_date, summarize_row
+from recall.core.nudges import select_sendable, start_of_local_day
 from recall.core.retrieval import find_entries
 from recall.factory import build_service
 from recall.service import RateLimited, RecallService
@@ -160,7 +160,9 @@ async def run_turn(
         return
     except TurnFailed:
         log.exception("Turn failed")
-        await update.message.reply_text("Something went wrong, so nothing was saved. Please resend that.")
+        await update.message.reply_text(
+            "Something went wrong, so nothing was saved. Please resend that."
+        )
         return
     finally:
         typing.cancel()
@@ -201,7 +203,9 @@ async def handle_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     try:
         matches = await asyncio.to_thread(find)
     except ToolError:
-        await update.message.reply_text("Search isn't available right now. Please try again shortly.")
+        await update.message.reply_text(
+            "Search isn't available right now. Please try again shortly."
+        )
         return
     if not matches:
         await update.message.reply_text("I couldn't find anything like that.")
@@ -298,7 +302,9 @@ async def handle_quiet(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             message = f"Quiet hours are {prefs.quiet_start} to {prefs.quiet_end}."
         else:
             state = f"{prefs.quiet_start} to {prefs.quiet_end}" if prefs.quiet_enabled else "off"
-            await update.message.reply_text(f"Quiet hours: {state}. Use /quiet 22:00 08:00 or /quiet off.")
+            await update.message.reply_text(
+                f"Quiet hours: {state}. Use /quiet 22:00 08:00 or /quiet off."
+            )
             return
         store.save_prefs(prefs)
     await update.message.reply_text(message)
@@ -360,7 +366,9 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await query.edit_message_text("Erased." if forgotten else "That entry is already gone.")
     elif action == "fpage":
         if "forget" not in context.user_data:
-            await query.edit_message_text("That list has expired. Please search again with /forget.")
+            await query.edit_message_text(
+                "That list has expired. Please search again with /forget."
+            )
             return
         text, keyboard = forget_page(context, user_id, int(args[0]))
         await query.edit_message_text(text, reply_markup=keyboard)
@@ -375,7 +383,7 @@ async def _handle_reminder_button(query, context, user_id: int, args: list[str])
             store.mark_done(int(value))
             status = "Done."
         elif verb == "snooze":
-            store.snooze(int(value), datetime.now(timezone.utc) + timedelta(days=1))
+            store.snooze(int(value), datetime.now(UTC) + timedelta(days=1))
             status = "Snoozed until tomorrow."
         else:
             store.mute_kind(value)
@@ -424,7 +432,7 @@ async def deliver_due(context: ContextTypes.DEFAULT_TYPE, user_id: int, now: dat
 
 async def reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
     service: RecallService = context.bot_data["service"]
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     for user_id in service.users():
         lock = context.bot_data["locks"][user_id]
         if lock.locked():
@@ -459,7 +467,7 @@ async def handle_nudge(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     try:
         async with context.bot_data["locks"][user_id]:
             found = await asyncio.to_thread(service.scan_nudges, telegram_identity(user_id), True)
-            sent = await deliver_due(context, user_id, datetime.now(timezone.utc))
+            sent = await deliver_due(context, user_id, datetime.now(UTC))
     finally:
         typing.cancel()
     if not found:

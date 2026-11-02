@@ -1,22 +1,57 @@
-"""Fill one user's memory with realistic, backdated entries, for demos and manual testing.
+"""Command line tools.
 
-    uv run recall-demo                  # into an empty memory
-    uv run recall-demo --fresh          # back up and replace what's there
-    uv run recall-demo --user 123       # needed when several users are allowed
+    recall-tokens create --user 123 --name claude-code --scopes read,write --days 30
+    recall-tokens list
+    recall-tokens revoke 4
 
-Rows are written directly, so seeding makes no model calls. Stop the bot first. Some items are
-open and some are already resolved, so nudges have real decisions to make.
+    recall-demo                  # sample entries, into an empty memory
+    recall-demo --fresh          # back up and replace what's there
+    recall-demo --user 123       # needed when several users are allowed
+
+Demo rows are written directly, so seeding makes no model calls. Stop the bot first. Some items
+are open and some are already resolved, so nudges have real decisions to make.
 """
 
 import argparse
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
+from recall.access import READ, TokenStore
 from recall.config import Settings
 from recall.factory import build_stores
 from recall.storage.base import MemoryStore
 from recall.storage.store import user_db_path
 
+
+def tokens() -> None:
+    parser = argparse.ArgumentParser(prog="recall-tokens")
+    commands = parser.add_subparsers(dest="command", required=True)
+    create = commands.add_parser("create")
+    create.add_argument("--user", type=int, required=True)
+    create.add_argument("--name", required=True)
+    create.add_argument("--scopes", default=READ, help="read, or read,write")
+    create.add_argument("--days", type=int, default=30)
+    commands.add_parser("list")
+    revoke = commands.add_parser("revoke")
+    revoke.add_argument("id", type=int)
+    args = parser.parse_args()
+
+    settings = Settings.from_env()
+    store = TokenStore(settings.data_dir / "auth.sqlite")
+    if args.command == "create":
+        if not settings.allows(args.user):
+            raise SystemExit(f"User {args.user} isn't in ALLOWED_USER_IDS.")
+        token = store.create(args.user, args.name, set(args.scopes.split(",")), args.days)
+        print(f"{token}\nThis is the only time it's shown. Keep it somewhere safe.")
+    elif args.command == "list":
+        for row in store.list_tokens():
+            state = "revoked" if row["revoked_at"] else f"expires {row['expires_at'][:10]}"
+            print(f"{row['id']}  user {row['user_id']}  {row['name']}  {row['scopes']}  {state}")
+    else:
+        print("Revoked." if store.revoke(args.id) else "No active token with that ID.")
+
+
+# fmt: off
 TABLES = {
     "movies": ("Films watched", {"title": "text", "rating": "real", "genre": "text", "companions": "text", "watched_on": "date"}),
     "meals": ("Meals out and what was good", {"dish": "text", "place": "text", "rating": "real", "companions": "text", "eaten_on": "date"}),
@@ -30,6 +65,7 @@ TABLES = {
     "patterns": ("What helps in a given mood or situation", {"situation": "text", "what_helps": "text"}),
     "notes": ("Anything else worth keeping", {"body": "text"}),
 }
+# fmt: on
 
 
 def rows(today) -> list[tuple]:
@@ -38,6 +74,7 @@ def rows(today) -> list[tuple]:
     def day(days_ago: int) -> str:
         return (today - timedelta(days=days_ago)).isoformat()
 
+    # fmt: off
     return [
         ("movies", {"title": "Dune: Part Two", "rating": 9, "genre": "sci-fi", "companions": "Arjun", "watched_on": day(42)}, 42, "Watched Dune 2 with Arjun, 9/10"),
         ("movies", {"title": "Past Lives", "rating": 8, "genre": "romance", "companions": "Priya", "watched_on": day(30)}, 30, "Past Lives with Priya, 8/10, made me cry"),
@@ -76,6 +113,7 @@ def rows(today) -> list[tuple]:
         ("notes", {"body": "The wifi at the Goa place was terrible, avoid it next time"}, 27, "Goa place wifi was terrible, avoid next time"),
         ("notes", {"body": "Would be nice to learn pottery someday"}, 29, "Would be nice to learn pottery someday"),
     ]
+    # fmt: on
 
 
 def seed(store: MemoryStore, now: datetime) -> int:
@@ -91,7 +129,8 @@ def seed(store: MemoryStore, now: datetime) -> int:
         row_id = store.add_row(table, values, said)
         saved = (now - timedelta(days=days_ago)).isoformat(timespec="seconds")
         store.conn.execute(
-            f"UPDATE {table} SET created_at = ?, updated_at = ? WHERE id = ?", (saved, saved, row_id)
+            f"UPDATE {table} SET created_at = ?, updated_at = ? WHERE id = ?",
+            (saved, saved, row_id),
         )
     # Otherwise /undo would treat the whole seed as one turn and erase it.
     store.conn.execute("DELETE FROM _history")
@@ -111,7 +150,7 @@ def back_up(settings: Settings, user_id: int, now: datetime) -> str:
     return str(target)
 
 
-def main() -> None:
+def demo() -> None:
     parser = argparse.ArgumentParser(prog="recall-demo")
     parser.add_argument("--user", type=int)
     parser.add_argument("--fresh", action="store_true", help="Back up and replace existing data")
@@ -124,7 +163,7 @@ def main() -> None:
     if not settings.allows(user_id):
         raise SystemExit(f"User {user_id} isn't in ALLOWED_USER_IDS.")
 
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     stores = build_stores(settings)
     if user_id in stores.user_ids():
         with stores.open(user_id) as store:
@@ -136,7 +175,3 @@ def main() -> None:
     with stores.open(user_id) as store:
         count = seed(store, now)
     print(f"Added {count} entries across {len(TABLES)} tables.")
-
-
-if __name__ == "__main__":
-    main()

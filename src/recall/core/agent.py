@@ -4,12 +4,11 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from recall.core.retrieval import Retriever, hybrid_search, result_key
-from recall.core.schema_design import TableDesigner
-from recall.core.tools import ADD_ONLY_TOOLS, Tools
+from recall.core.tools import ADD_ONLY_TOOLS, TableDesigner, Tools
 from recall.llm.base import LLM, LLMError, Stop, ToolResult
 from recall.storage.base import ROW_METADATA, MemoryStore, ToolError
 
@@ -232,7 +231,9 @@ def resolve_citations(text: str, store: MemoryStore) -> tuple[str, list[Source]]
     sources: list[Source] = []
     missing = False
     seen: set[tuple[str, int]] = set()
-    for match in (cited for citation in CITATION.finditer(text) for cited in CITED.finditer(citation[0])):
+    for match in (
+        cited for citation in CITATION.finditer(text) for cited in CITED.finditer(citation[0])
+    ):
         table = match.group(1)
         for row_id in (int(part) for part in match.group(2).split(",")):
             if (table, row_id) in seen:
@@ -246,7 +247,9 @@ def resolve_citations(text: str, store: MemoryStore) -> tuple[str, list[Source]]
                 sources.append(Source(table, row_id, summary, row_date(row)))
     clean = CITATION.sub("", text).strip()
     if missing:
-        clean += "\n\nWarning: part of this answer cites an entry I can't find, so don't rely on it."
+        clean += (
+            "\n\nWarning: part of this answer cites an entry I can't find, so don't rely on it."
+        )
     return clean, sources
 
 
@@ -301,7 +304,7 @@ class Agent:
     def respond(
         self, store: MemoryStore, text: str, now: datetime | None = None, image: bytes | None = None
     ) -> Reply:
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
         tools = Tools(store, text, now, self.retriever, self.designer)
         context = message_context(store, now)
         if self.prefetch:
@@ -323,13 +326,15 @@ class Agent:
         the chat, can't change anything already saved, and its reply is never returned. It stays
         out of the chat history too, so outside text is never replayed as something the user said.
         """
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
         tools = Tools(store, text, now, None, self.designer, ADD_ONLY_TOOLS)
         content = f"<context>\n{message_context(store, now)}\n</context>\n\n{text}"
         self._attempt(store, [self.llm.user_message(content)], tools, CAPTURE_NOTE)
         return tools.saved
 
-    def _attempt(self, store: MemoryStore, messages: list[dict], tools: Tools, note: str = "") -> str:
+    def _attempt(
+        self, store: MemoryStore, messages: list[dict], tools: Tools, note: str = ""
+    ) -> str:
         try:
             return self._run(messages, tools, note)
         except (LLMError, TurnFailed) as exc:
@@ -339,7 +344,9 @@ class Agent:
 
     def _run(self, messages: list[dict], tools: Tools, note: str = "") -> str:
         for _ in range(MAX_STEPS):
-            reply = self.llm.chat(self.model, SYSTEM_PROMPT, messages, tools.schemas, self.effort, note)
+            reply = self.llm.chat(
+                self.model, SYSTEM_PROMPT, messages, tools.schemas, self.effort, note
+            )
             if reply.stop is Stop.REFUSED:
                 raise TurnFailed("The model declined this message.")
             if reply.stop is Stop.CUT_OFF:

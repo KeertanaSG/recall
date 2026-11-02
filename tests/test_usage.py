@@ -1,13 +1,13 @@
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from recall.access import Limit, UsageLimiter
 from recall.config import Settings, parse_allowed_users
 from recall.storage.store import known_user_ids
-from recall.usage import Limit, UsageLimiter
 
-NOW = datetime(2026, 11, 1, 12, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 1, 12, tzinfo=UTC)
 
 
 def limiter(tmp_path, per_user=2, total=3):
@@ -59,7 +59,9 @@ def test_total_limit_holds_across_separate_connections(tmp_path):
         assert sum(pool.map(spend_many, limiters)) == 40
 
 
-@pytest.mark.parametrize(("value", "expected"), [("*", None), (" * ", None), ("1, 2,", frozenset({1, 2}))])
+@pytest.mark.parametrize(
+    ("value", "expected"), [("*", None), (" * ", None), ("1, 2,", frozenset({1, 2}))]
+)
 def test_parse_allowed_users(value, expected):
     assert parse_allowed_users(value) == expected
 

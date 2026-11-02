@@ -1,8 +1,6 @@
 """The RAG pipeline behind the agent's search tool, built as a LangGraph graph.
 
-plan -> retrieve -> grade --> done
-  ^                   |
-  +--- nothing fits --+  (only when max_attempts is above 1)
+plan -> retrieve -> grade
 
 Planning widens the question into search phrases and keywords. Retrieval merges
 semantic and keyword matches, so names and exact words aren't lost. Grading drops
@@ -23,7 +21,6 @@ from recall.storage.base import MemoryStore, ToolError
 
 log = logging.getLogger(__name__)
 
-MAX_ATTEMPTS = 1  # A second attempt doubled "nothing found" time and fixed nothing in evals/.
 MAX_CANDIDATES = 15
 FUSION_K = 60  # The standard reciprocal rank fusion constant.
 MIN_MATCH_SCORE = 0.63  # Set from the demo data: unrelated words reached 0.59 to 0.62.
@@ -33,8 +30,7 @@ PLAN_SYSTEM = """\
 You prepare searches over one person's saved notes, such as movies, expenses, promises and people.
 Given a question, write up to three short search phrases that a matching note might resemble, \
 and up to six keywords that could appear in it literally. Think about how the fact would have \
-been written down. "Who owes me money?" might be saved as "lent Arjun 2000" or "paid for Sam". \
-If earlier searches found nothing useful, try different angles."""
+been written down. "Who owes me money?" might be saved as "lent Arjun 2000" or "paid for Sam"."""
 
 GRADE_SYSTEM = """\
 You judge search results from one person's saved notes. Return the keys of the entries that help \
@@ -59,7 +55,9 @@ GRADE_SCHEMA = {
 }
 
 
-def hybrid_search(store: MemoryStore, text: str, limit: int, table: str | None = None) -> list[dict]:
+def hybrid_search(
+    store: MemoryStore, text: str, limit: int, table: str | None = None
+) -> list[dict]:
     """Merge semantic and keyword matches with no model call."""
     rankings = [store.keyword_search([word], limit, table) for word in WORD.findall(text)]
     try:
@@ -84,11 +82,9 @@ class RetrievalState(TypedDict, total=False):
     table: str | None
     queries: list[str]
     keywords: list[str]
-    tried: list[str]
     candidates: list[dict]
     relevant: list[dict]
     graded: bool
-    attempts: int
 
 
 def result_key(result: dict) -> str:
@@ -109,10 +105,9 @@ def fuse(rankings: list[list[dict]], limit: int = MAX_CANDIDATES) -> list[dict]:
 
 
 class Retriever:
-    def __init__(self, llm: LLM, model: str, max_attempts: int = MAX_ATTEMPTS):
+    def __init__(self, llm: LLM, model: str):
         self.llm = llm
         self.model = model
-        self.max_attempts = max_attempts
         graph = StateGraph(RetrievalState)
         graph.add_node("plan", self._plan)
         graph.add_node("retrieve", self._retrieve)
@@ -120,12 +115,14 @@ class Retriever:
         graph.add_edge(START, "plan")
         graph.add_edge("plan", "retrieve")
         graph.add_edge("retrieve", "grade")
-        graph.add_conditional_edges("grade", self._next_step, {"retry": "plan", "done": END})
+        graph.add_edge("grade", END)
         self.graph = graph.compile()
 
-    def search(self, store: MemoryStore, text: str, table: str | None = None, limit: int = 8) -> dict:
+    def search(
+        self, store: MemoryStore, text: str, table: str | None = None, limit: int = 8
+    ) -> dict:
         state = self.graph.invoke(
-            {"question": text, "table": table, "tried": [], "attempts": 0},
+            {"question": text, "table": table},
             config={"configurable": {"store": store}},
         )
         results = state["relevant"][:limit]
@@ -141,13 +138,10 @@ class Retriever:
             for table in config["configurable"]["store"].tables()
         ]
         prompt = f"Saved subjects: {'; '.join(subjects)}\nQuestion: {state['question']}"
-        if state["tried"]:
-            prompt += f"\nAlready tried, without success: {state['tried']}"
         plan = self._ask(PLAN_SYSTEM, prompt, PLAN_SCHEMA) or {}
         return {
             "queries": [state["question"], *plan.get("queries", [])],
             "keywords": plan.get("keywords", []),
-            "attempts": state["attempts"] + 1,
         }
 
     def _retrieve(self, state: RetrievalState, config: RunnableConfig) -> RetrievalState:
@@ -163,10 +157,7 @@ class Retriever:
         # One ranking per keyword, so a row matching several keywords rises in the fusion.
         for keyword in state["keywords"]:
             rankings.append(store.keyword_search([keyword], MAX_CANDIDATES, table))
-        return {
-            "candidates": fuse(rankings),
-            "tried": [*state["tried"], *state["queries"], *state["keywords"]],
-        }
+        return {"candidates": fuse(rankings)}
 
     def _grade(self, state: RetrievalState) -> RetrievalState:
         candidates = state["candidates"]
@@ -181,11 +172,6 @@ class Retriever:
             return {"relevant": candidates, "graded": False}
         keep = set(verdict["relevant"])
         return {"relevant": [c for c in candidates if result_key(c) in keep], "graded": True}
-
-    def _next_step(self, state: RetrievalState) -> str:
-        if state["relevant"] or state["attempts"] >= self.max_attempts:
-            return "done"
-        return "retry"
 
     def _ask(self, system: str, prompt: str, schema: dict) -> dict | None:
         try:

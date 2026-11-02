@@ -1,12 +1,13 @@
 import json
+from datetime import UTC
 from types import SimpleNamespace
 
 import anthropic
 import httpx
 import pytest
 
+from recall.core.retrieval import Retriever, fuse
 from recall.llm.claude import ClaudeLLM
-from recall.core.retrieval import MAX_ATTEMPTS, Retriever, fuse
 from recall.storage.store import ToolError
 
 
@@ -66,32 +67,17 @@ def test_grading_keeps_only_relevant_rows(notes):
 
 
 def test_keywords_find_rows_that_embeddings_miss(notes):
-    client = FakeClient(plan={"queries": [], "keywords": ["arjun"]}, grades=[{"relevant": ["notes#1"]}])
+    client = FakeClient(
+        plan={"queries": [], "keywords": ["arjun"]}, grades=[{"relevant": ["notes#1"]}]
+    )
     result = Retriever(ClaudeLLM(client), "m").search(notes, "unrelated words entirely")
     assert result["results"][0]["row"]["body"] == "lent Arjun 2000 for tickets"
-
-
-def test_nothing_relevant_retries_with_a_new_angle_then_says_so(notes):
-    client = FakeClient(
-        plan={"queries": ["cab"], "keywords": []},
-        grades=[{"relevant": []}, {"relevant": []}],
-    )
-    result = Retriever(ClaudeLLM(client), "m", max_attempts=2).search(notes, "passport number")
-    assert result["nothing_relevant"] and result["results"] == []
-    assert len(client.prompts) == 4
-    assert "Already tried" in client.prompts[2]
 
 
 def test_default_gives_up_after_one_pass(notes):
     client = FakeClient(grades=[{"relevant": []}])
     assert Retriever(ClaudeLLM(client), "m").search(notes, "passport number")["nothing_relevant"]
-    assert len(client.prompts) == 2 * MAX_ATTEMPTS
-
-
-def test_a_retry_can_succeed(notes):
-    client = FakeClient(grades=[{"relevant": []}, {"relevant": ["notes#2"]}])
-    result = Retriever(ClaudeLLM(client), "m", max_attempts=2).search(notes, "cab")
-    assert [r["row"]["id"] for r in result["results"]] == [2]
+    assert len(client.prompts) == 2
 
 
 def test_invented_keys_from_the_grader_are_ignored(notes):
@@ -110,20 +96,26 @@ def test_search_survives_a_failed_grade(notes, failure):
 
 
 def test_search_survives_a_failed_plan(notes):
-    client = FakeClient(plan=anthropic.APIConnectionError(request=httpx.Request("POST", "https://x")))
+    client = FakeClient(
+        plan=anthropic.APIConnectionError(request=httpx.Request("POST", "https://x"))
+    )
     assert Retriever(ClaudeLLM(client), "m").search(notes, "cab")["results"]
 
 
 def test_search_survives_an_embedding_outage(notes, embedder):
     embedder.failing = True
-    client = FakeClient(plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["notes#2"]}])
+    client = FakeClient(
+        plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["notes#2"]}]
+    )
     assert Retriever(ClaudeLLM(client), "m").search(notes, "cab")["results"][0]["row"]["id"] == 2
 
 
 def test_table_filter_applies_to_both_searches(notes):
     notes.create_table("films", "Films", [{"name": "title", "type": "text"}])
     notes.add_row("films", {"title": "cab movie"})
-    client = FakeClient(plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["films#1"]}])
+    client = FakeClient(
+        plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["films#1"]}]
+    )
     result = Retriever(ClaudeLLM(client), "m").search(notes, "cab", table="films")
     assert {r["table"] for r in result["results"]} == {"films"}
     assert "notes#" not in client.prompts[1]
@@ -136,9 +128,9 @@ def test_keyword_search_treats_wildcards_literally(notes):
 
 
 def test_keyword_search_covers_reminders(notes):
-    from datetime import datetime, timezone
+    from datetime import datetime
 
-    notes.add_reminder("send Priya the file", datetime(2026, 12, 1, tzinfo=timezone.utc), "promise", False)
+    notes.add_reminder("send Priya the file", datetime(2026, 12, 1, tzinfo=UTC), "promise", False)
     assert notes.keyword_search(["priya"])[0]["table"] == "_reminders"
 
 

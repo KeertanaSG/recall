@@ -1,12 +1,11 @@
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import anthropic
 import httpx
 import pytest
 
-from recall.llm.claude import ClaudeLLM
 from recall.core.agent import (
     Agent,
     Reply,
@@ -16,10 +15,11 @@ from recall.core.agent import (
     resolve_citations,
     summarize_row,
 )
-from recall.storage.store import REMINDERS
 from recall.core.tools import TOOLS, Tools
+from recall.llm.claude import ClaudeLLM
+from recall.storage.store import REMINDERS
 
-NOW = datetime(2026, 11, 1, 10, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 1, 10, 0, tzinfo=UTC)
 
 
 def text(value):
@@ -27,7 +27,9 @@ def text(value):
 
 
 def tool(tool_name, **tool_input):
-    return SimpleNamespace(type="tool_use", id=f"call_{tool_name}", name=tool_name, input=tool_input)
+    return SimpleNamespace(
+        type="tool_use", id=f"call_{tool_name}", name=tool_name, input=tool_input
+    )
 
 
 def response(*content, stop_reason=None):
@@ -125,19 +127,42 @@ def test_photo_reaches_the_model_but_is_never_kept(store):
     )
     agent.respond(store, "[photo] lunch", NOW, image=b"jpeg-bytes")
     image, caption = client.calls[0]["messages"][-1]["content"]
-    assert image["source"] == {"type": "base64", "media_type": "image/jpeg", "data": "anBlZy1ieXRlcw=="}
+    assert image["source"] == {
+        "type": "base64",
+        "media_type": "image/jpeg",
+        "data": "anBlZy1ieXRlcw==",
+    }
     assert caption["text"].endswith("[photo] lunch")
     assert "anBlZy1ieXRlcw" not in str(store.recent_messages())
     assert store.recent_messages()[0]["content"] == "[photo] lunch"
-    assert store.conn.execute("SELECT source_text FROM notes WHERE id = 2").fetchone()[0] == "[photo] lunch"
+    assert (
+        store.conn.execute("SELECT source_text FROM notes WHERE id = 2").fetchone()[0]
+        == "[photo] lunch"
+    )
 
 
 def test_capture_creates_table_saves_source_and_offers_undo(store):
     agent, _ = agent_with(
         response(tool("create_table", subject="movies", example="Watched Dune 2, 9/10")),
-        response(text(json.dumps({"name": "movies", "description": "Films", "columns": [
-            {"name": "title", "type": "text", "description": "", "required": True},
-            {"name": "rating", "type": "real", "description": "", "required": False}]}))),
+        response(
+            text(
+                json.dumps(
+                    {
+                        "name": "movies",
+                        "description": "Films",
+                        "columns": [
+                            {"name": "title", "type": "text", "description": "", "required": True},
+                            {
+                                "name": "rating",
+                                "type": "real",
+                                "description": "",
+                                "required": False,
+                            },
+                        ],
+                    }
+                )
+            )
+        ),
         response(tool("add_row", table="movies", values={"title": "Dune 2", "rating": 9})),
         response(text("Saved: Dune 2, 9/10.")),
     )
@@ -152,7 +177,9 @@ def test_question_has_no_undo_and_shows_database_source(store, expenses):
     store.add_row(expenses, {"item": "cab", "amount": 450})
     store.turn_id = None
     agent, _ = agent_with(
-        response(tool("query", sql="SELECT SUM(amount) AS t, group_concat(id) AS ids FROM expenses")),
+        response(
+            tool("query", sql="SELECT SUM(amount) AS t, group_concat(id) AS ids FROM expenses")
+        ),
         response(text("You spent 450 on cabs [expenses#1].")),
     )
     reply = agent.respond(store, "cab spend?", NOW)
@@ -170,8 +197,17 @@ def test_saves_show_no_source_list(store, expenses):
 
 
 def test_row_summary_reads_naturally():
-    row = {"id": 1, "title": "Dune", "rating": 8.0, "is_rewatch": 1, "watched_with": "Arjun",
-           "notes": None, "source_text": "x", "created_at": "2026-11-01T10:00:00+00:00", "updated_at": "x"}
+    row = {
+        "id": 1,
+        "title": "Dune",
+        "rating": 8.0,
+        "is_rewatch": 1,
+        "watched_with": "Arjun",
+        "notes": None,
+        "source_text": "x",
+        "created_at": "2026-11-01T10:00:00+00:00",
+        "updated_at": "x",
+    }
     assert summarize_row(row, frozenset({"is_rewatch"})) == "Dune · rating 8 · Arjun · saved Nov 1"
 
 
@@ -233,8 +269,14 @@ def test_three_sources_are_listed_in_full():
 
 def test_summary_stays_short_and_keeps_what_says_the_most():
     row = {
-        "id": 1, "item": "Masala Dosa", "currency": "INR", "category": "food", "amount": 120.0,
-        "spent_on": "2026-10-28", "merchant": "Cafe Malabar", "created_at": "2026-11-02T08:38:21+00:00",
+        "id": 1,
+        "item": "Masala Dosa",
+        "currency": "INR",
+        "category": "food",
+        "amount": 120.0,
+        "spent_on": "2026-10-28",
+        "merchant": "Cafe Malabar",
+        "created_at": "2026-11-02T08:38:21+00:00",
     }
     assert summarize_row(row) == "Masala Dosa · amount 120 · INR · Oct 28"
     assert summarize_row({**row, "item": "x" * 200}).endswith("…")
@@ -337,7 +379,12 @@ def test_reminder_time_uses_the_users_zone(store):
     tools = Tools(store, "send file", NOW, None, None)
     tools.run(
         "set_reminder",
-        {"text": "Send file", "remind_at": "2026-11-06T09:00", "kind": "promise", "explicit": False},
+        {
+            "text": "Send file",
+            "remind_at": "2026-11-06T09:00",
+            "kind": "promise",
+            "explicit": False,
+        },
     )
     assert store.get_row(REMINDERS, 1)["remind_at"] == "2026-11-06T03:30:00+00:00"
 
@@ -359,10 +406,16 @@ def test_past_and_muted_reminders_are_refused(store):
 
     tools = Tools(store, "x", NOW, None, None)
     with pytest.raises(ToolError, match="past"):
-        tools.run("set_reminder", {"text": "x", "remind_at": "2020-01-01T09:00", "kind": "other", "explicit": True})
+        tools.run(
+            "set_reminder",
+            {"text": "x", "remind_at": "2020-01-01T09:00", "kind": "other", "explicit": True},
+        )
     store.mute_kind("promise")
     with pytest.raises(ToolError, match="turned off"):
-        tools.run("set_reminder", {"text": "x", "remind_at": "2026-12-01T09:00", "kind": "promise", "explicit": False})
+        tools.run(
+            "set_reminder",
+            {"text": "x", "remind_at": "2026-12-01T09:00", "kind": "promise", "explicit": False},
+        )
 
 
 def test_agent_has_no_delete_tool():

@@ -7,16 +7,15 @@ so a caller can't ask for someone else's data. Tokens are also rate limited and 
 
 import json
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
+from recall.access import OWNER, READ, WRITE, Identity, Limit, TokenStore, UsageLimiter
+from recall.config import Settings
 from recall.core.agent import Agent, Reply, TurnFailed
 from recall.core.nudges import Nudger
 from recall.core.retrieval import hybrid_search
 from recall.core.tools import Tools
-from recall.auth import OWNER, READ, WRITE, Identity, TokenStore
-from recall.config import Settings
-from recall.storage.base import StoreProvider, ToolError
-from recall.usage import Limit, UsageLimiter
+from recall.storage.base import StoreProvider
 
 LIMIT_MESSAGES = {
     Limit.USER: "You've reached today's message limit. Please try again tomorrow.",
@@ -76,7 +75,9 @@ class RecallService:
         """Authorize a call, open that user's store, and audit the outcome."""
         self._authorize(identity, action, scope)
         limit = self.settings.api_requests_per_minute
-        if identity.token_id is not None and not self.tokens.within_rate_limit(identity.token_id, limit):
+        if identity.token_id is not None and not self.tokens.within_rate_limit(
+            identity.token_id, limit
+        ):
             self._record(identity, action, "rate_limited")
             raise RateLimited("Too many requests. Try again in a minute.")
         outcome = "ok"
@@ -108,7 +109,9 @@ class RecallService:
         self._authorize(identity, "delete everything", OWNER)
         self.stores.delete(identity.user_id)
 
-    def search(self, identity: Identity, text: str, table: str | None = None, limit: int = 8) -> list[dict]:
+    def search(
+        self, identity: Identity, text: str, table: str | None = None, limit: int = 8
+    ) -> list[dict]:
         """Search by meaning and keyword, with no model call. The caller judges relevance."""
         with self.access(identity, "search", READ) as store:
             return hybrid_search(store, text, min(max(limit, 1), 20), table)
@@ -151,9 +154,6 @@ class RecallService:
     ) -> dict:
         """Schedule a reminder the user asked for. It's delivered on Telegram."""
         with self.access(identity, "set_reminder", WRITE) as store:
-            tools = Tools(store, text, datetime.now(timezone.utc), None, None)
+            tools = Tools(store, text, datetime.now(UTC), None, None)
             arguments = {"text": text, "remind_at": remind_at, "kind": kind, "explicit": True}
             return json.loads(tools.run("set_reminder", arguments))
-
-
-__all__ = ["AccessDenied", "NotFound", "RateLimited", "RecallService", "ToolError", "Unavailable"]

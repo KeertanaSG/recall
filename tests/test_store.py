@@ -1,14 +1,21 @@
 import sqlite3
 import zipfile
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from io import BytesIO
 from pathlib import Path
 
 import pytest
 
-from recall.storage.store import REMINDERS, Store, ToolError, delete_user_data, name_key, user_db_path
+from recall.storage.store import (
+    REMINDERS,
+    Store,
+    ToolError,
+    delete_user_data,
+    name_key,
+    user_db_path,
+)
 
-NOW = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 11, 1, 12, 0, tzinfo=UTC)
 
 
 def new_turn(store):
@@ -16,7 +23,9 @@ def new_turn(store):
 
 
 def test_add_row_converts_types(store, expenses):
-    row_id = store.add_row(expenses, {"item": "cab", "amount": "450", "spent_on": "2026-11-01"}, "cab 450")
+    row_id = store.add_row(
+        expenses, {"item": "cab", "amount": "450", "spent_on": "2026-11-01"}, "cab 450"
+    )
     row = store.get_row(expenses, row_id)
     assert row["amount"] == 450.0
     assert row["source_text"] == "cab 450"
@@ -24,7 +33,13 @@ def test_add_row_converts_types(store, expenses):
 
 @pytest.mark.parametrize(
     "values",
-    [{"amount": "cheap"}, {"spent_on": "next friday"}, {"amount": float("nan")}, {"nope": 1}, {"item": None}],
+    [
+        {"amount": "cheap"},
+        {"spent_on": "next friday"},
+        {"amount": float("nan")},
+        {"nope": 1},
+        {"item": None},
+    ],
 )
 def test_add_row_rejects_bad_values(store, expenses, values):
     with pytest.raises(ToolError):
@@ -35,10 +50,14 @@ def test_add_row_rejects_bad_values(store, expenses, values):
 def test_duplicate_table_names_are_blocked_even_when_forced(store, name):
     store.create_table("coffee", "Coffees drunk", [{"name": "kind", "type": "text"}])
     with pytest.raises(ToolError, match="already covers"):
-        store.create_table(name, "Other", [{"name": "shop", "type": "text"}], confirmed_distinct=True)
+        store.create_table(
+            name, "Other", [{"name": "shop", "type": "text"}], confirmed_distinct=True
+        )
 
 
-@pytest.mark.parametrize(("first", "second"), [("movies", "movie_log"), ("cities", "city"), ("books", "book_list")])
+@pytest.mark.parametrize(
+    ("first", "second"), [("movies", "movie_log"), ("cities", "city"), ("books", "book_list")]
+)
 def test_name_key_matches_plurals(first, second):
     assert name_key(first) == name_key(second)
 
@@ -60,7 +79,9 @@ def test_similar_columns_need_confirmation(store):
 def test_similar_description_needs_confirmation(store):
     store.create_table("cabs", "cab rides taken around town", [{"name": "fare", "type": "real"}])
     with pytest.raises(ToolError, match="Similar tables"):
-        store.create_table("taxi_trips", "cab rides taken around town", [{"name": "driver", "type": "text"}])
+        store.create_table(
+            "taxi_trips", "cab rides taken around town", [{"name": "driver", "type": "text"}]
+        )
 
 
 def test_schema_check_survives_embedding_outage(store, embedder):
@@ -69,7 +90,9 @@ def test_schema_check_survives_embedding_outage(store, embedder):
     store.create_table("books", "books read", [{"name": "title", "type": "text"}])
 
 
-@pytest.mark.parametrize("name", ["_secret", "Drop", "a b", 'x"; DROP TABLE y', "sqlite_x", "id", ""])
+@pytest.mark.parametrize(
+    "name", ["_secret", "Drop", "a b", 'x"; DROP TABLE y', "sqlite_x", "id", ""]
+)
 def test_unsafe_identifiers_are_rejected(store, name):
     with pytest.raises(ToolError):
         store.create_table(name, "x", [{"name": "a", "type": "text"}])
@@ -78,7 +101,9 @@ def test_unsafe_identifiers_are_rejected(store, name):
 
 
 def test_update_keeps_history(store):
-    store.create_table("profile", "Facts", [{"name": "fact", "type": "text"}, {"name": "value", "type": "text"}])
+    store.create_table(
+        "profile", "Facts", [{"name": "fact", "type": "text"}, {"name": "value", "type": "text"}]
+    )
     new_turn(store)
     row_id = store.add_row("profile", {"fact": "city", "value": "Bangalore"})
     new_turn(store)
@@ -119,11 +144,15 @@ def test_old_undo_button_is_refused(store, expenses):
 
 
 def test_failed_write_rolls_back_cleanly(store, expenses, monkeypatch):
-    monkeypatch.setattr(store, "_mark_stale", lambda *_: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setattr(
+        store, "_mark_stale", lambda *_: (_ for _ in ()).throw(RuntimeError("boom"))
+    )
     with pytest.raises(RuntimeError):
         store.add_row(expenses, {"item": "cab"})
     assert store.tables()[0]["row_count"] == 0
-    assert store.conn.execute("SELECT COUNT(*) FROM _history WHERE op = 'insert'").fetchone()[0] == 0
+    assert (
+        store.conn.execute("SELECT COUNT(*) FROM _history WHERE op = 'insert'").fetchone()[0] == 0
+    )
 
 
 def test_rows_save_during_embedding_outage_and_catch_up(store, embedder, expenses):

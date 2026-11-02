@@ -1,6 +1,6 @@
 """Compare retrieval on a large history: plain vector search against the LangGraph pipeline.
 
-    uv run python evals/run_retrieval.py                # graph with 2 and 1 attempts
+    uv run python evals/run_retrieval.py                # the search graph alone
     uv run python evals/run_retrieval.py --agent        # the full agent loop instead
     uv run python evals/run_retrieval.py --vector-only  # no model calls
     uv run python evals/run_retrieval.py --label "new grader prompt"
@@ -20,7 +20,7 @@ import threading
 import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import anthropic
@@ -30,12 +30,14 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from history import ABSENT, NEEDLES, build_history  # noqa: E402
 
-from recall.core.agent import Agent, TurnFailed  # noqa: E402
 from recall.config import Settings  # noqa: E402
+from recall.core.agent import Agent, TurnFailed  # noqa: E402
+from recall.core.retrieval import Retriever  # noqa: E402
 from recall.llm.claude import ClaudeLLM  # noqa: E402
-from recall.storage.embeddings import LocalEmbedder  # noqa: E402
-from recall.core.retrieval import MAX_ATTEMPTS, Retriever  # noqa: E402
-from recall.storage.store import Store  # noqa: E402
+from recall.storage.store import (
+    LocalEmbedder,  # noqa: E402
+    Store,  # noqa: E402
+)
 
 EVALS = Path(__file__).parent
 RESULTS = EVALS / "results"
@@ -135,7 +137,7 @@ def summarize(name, label, outcomes, locations, rows, tokens):
     times = [o["seconds"] for o in outcomes]
     slowest = max(outcomes, key=lambda o: o["seconds"])
     used = [o["graph_used"] for o in outcomes if o["graph_used"] is not None]
-    created = datetime.now(timezone.utc)
+    created = datetime.now(UTC)
     return {
         "run_id": f"{created:%Y%m%d-%H%M%S}-{name}",
         "created_at": created.isoformat(timespec="seconds"),
@@ -173,10 +175,14 @@ def report(summary, outcomes):
     for subject, stats in summary["subjects"].items():
         passed = f"{stats['passed']}/{stats['total']}"
         print(f"{subject:10} {passed:>8} {stats['mean_s']:>8.1f} {stats['max_s']:>8.1f}")
-    print(f"answerable {summary['answerable_passed']}/{summary['answerable_total']} | "
-          f"absent {summary['absent_passed']}/{summary['absent_total']}")
-    print(f"time: median {summary['median_s']}s | mean {summary['mean_s']}s | sum {summary['sum_s']}s | "
-          f"slowest {summary['slowest_s']}s ({summary['slowest_question']})")
+    print(
+        f"answerable {summary['answerable_passed']}/{summary['answerable_total']} | "
+        f"absent {summary['absent_passed']}/{summary['absent_total']}"
+    )
+    print(
+        f"time: median {summary['median_s']}s | mean {summary['mean_s']}s | sum {summary['sum_s']}s | "
+        f"slowest {summary['slowest_s']}s ({summary['slowest_question']})"
+    )
     if summary["graph_used"] is not None:
         print(f"graph used on {summary['graph_used']}/{len(outcomes)} questions")
     if summary["tokens"]:
@@ -185,13 +191,17 @@ def report(summary, outcomes):
         for step, calls in tokens["calls"].items():
             if calls:
                 seconds = tokens["model_seconds"][step]
-                print(f"{step}: {calls} calls, {seconds / calls:.1f}s each, "
-                      f"{seconds / len(outcomes):.1f}s per question")
+                print(
+                    f"{step}: {calls} calls, {seconds / calls:.1f}s each, "
+                    f"{seconds / len(outcomes):.1f}s per question"
+                )
     failures = [o for o in outcomes if not o["passed"]]
     if failures:
         print("  failures:")
         for outcome in failures:
-            print(f"    {outcome['subject']}: {outcome['question']} -> returned {len(outcome['returned'])} rows")
+            print(
+                f"    {outcome['subject']}: {outcome['question']} -> returned {len(outcome['returned'])} rows"
+            )
             if outcome["answer"]:
                 print(f"      answer: {outcome['answer']}")
 
@@ -229,7 +239,9 @@ def agent_ask(agent):
 
     def ask(store, question):
         uses.graph = False
-        store.log_exchange = lambda *_: None  # Questions run in parallel and must not share context.
+        store.log_exchange = lambda *_: (
+            None
+        )  # Questions run in parallel and must not share context.
         try:
             reply = agent.respond(store, question)
         except TurnFailed as exc:
@@ -243,14 +255,16 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--agent", action="store_true")
     parser.add_argument("--vector-only", action="store_true")
-    parser.add_argument("--attempts", type=int, default=MAX_ATTEMPTS, help="Graph attempts for the agent run")
     parser.add_argument("--label", default="", help="What changed in this run")
     parser.add_argument("--model", default=Settings.model, help="Model for the main agent loop")
     parser.add_argument(
-        "--retrieval-model", default=Settings.retrieval_model, help="Model for the graph's plan and grade steps"
+        "--retrieval-model",
+        default=Settings.retrieval_model,
+        help="Model for the graph's plan and grade steps",
     )
-    parser.add_argument("--fast", action="store_true", help="Use fast mode on Opus calls")
-    parser.add_argument("--prefetch", action="store_true", help="Search locally before the first model call")
+    parser.add_argument(
+        "--prefetch", action="store_true", help="Search locally before the first model call"
+    )
     args = parser.parse_args()
     load_dotenv()
 
@@ -263,28 +277,29 @@ def main():
         with Store(path, embedder, "Asia/Kolkata") as store:
             locations = build_history(store)
             rows = sum(t["row_count"] for t in store.tables())
-        print(f"Built {rows} rows in {time.time() - start:.0f}s. "
-              f"{len(NEEDLES)} answerable, {len(ABSENT)} absent.")
+        print(
+            f"Built {rows} rows in {time.time() - start:.0f}s. "
+            f"{len(NEEDLES)} answerable, {len(ABSENT)} absent."
+        )
 
         suffix = "".join(
             [
                 "" if args.model == MODEL else f"-main-{args.model.split('-')[1]}",
                 "" if args.retrieval_model == MODEL else f"-{args.retrieval_model.split('-')[1]}",
-                "-fast" if args.fast else "",
                 "-prefetch" if args.prefetch else "",
             ]
         )
         configs = []
+        llm = ClaudeLLM(client)
         if args.agent:
-            agent = Agent(ClaudeLLM(client, args.fast), args.model, "low", prefetch=args.prefetch)
-            agent.retriever = Retriever(ClaudeLLM(client, args.fast), args.retrieval_model, args.attempts)
-            configs.append((f"agent-{args.attempts}-attempt{suffix}", agent_ask(agent)))
+            agent = Agent(llm, args.model, "low", prefetch=args.prefetch)
+            agent.retriever = Retriever(llm, args.retrieval_model)
+            configs.append((f"agent{suffix}", agent_ask(agent)))
         else:
             configs.append((f"vector-top{VECTOR_TOP_K}", vector_ask))
             if not args.vector_only:
-                for attempts in (2, 1):
-                    retriever = Retriever(ClaudeLLM(client, args.fast), args.retrieval_model, attempts)
-                    configs.append((f"graph-{attempts}-attempt{suffix}", graph_ask(retriever)))
+                retriever = Retriever(llm, args.retrieval_model)
+                configs.append((f"graph{suffix}", graph_ask(retriever)))
 
         for name, ask in configs:
             outcomes = run_all(path, embedder, ask)

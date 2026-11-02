@@ -5,8 +5,8 @@ import anthropic
 import httpx
 import pytest
 
+from recall.core.tools import TableDesigner
 from recall.llm.claude import ClaudeLLM
-from recall.core.schema_design import TableDesigner
 from recall.storage.store import ToolError
 
 DESIGN = {
@@ -30,11 +30,15 @@ def client_returning(*responses):
             raise item
         return item
 
-    return SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=create)), calls=calls)
+    return SimpleNamespace(
+        beta=SimpleNamespace(messages=SimpleNamespace(create=create)), calls=calls
+    )
 
 
 def reply(text, stop_reason="end_turn"):
-    return SimpleNamespace(content=[SimpleNamespace(type="text", text=text)], stop_reason=stop_reason)
+    return SimpleNamespace(
+        content=[SimpleNamespace(type="text", text=text)], stop_reason=stop_reason
+    )
 
 
 def test_design_creates_table_and_reports_columns(store):
@@ -53,7 +57,9 @@ def test_design_is_told_about_existing_tables(store, expenses):
 
 
 def test_duplicate_guard_still_applies_to_designed_tables(store):
-    client = client_returning(reply(json.dumps(DESIGN)), reply(json.dumps({**DESIGN, "name": "movie_log"})))
+    client = client_returning(
+        reply(json.dumps(DESIGN)), reply(json.dumps({**DESIGN, "name": "movie_log"}))
+    )
     designer = TableDesigner(ClaudeLLM(client), "m")
     designer.create(store, "movies", "saw Dune")
     with pytest.raises(ToolError, match="already covers"):

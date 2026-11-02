@@ -5,16 +5,21 @@ detect -> judge -> policy -> deliver
 Detection is free: it uses the schema and local search, and works on any table. Only its few
 candidates reach the model, which leaves out anything finished or not worth a message. Picks
 become ordinary reminders, so quiet hours, daily limits, mutes and buttons all apply unchanged.
+
+Reminders the user asked for (`explicit`) always fire on time. Proactive ones respect pause, quiet
+hours, muted kinds and the daily limit. Held reminders stay pending, so the next allowed tick sends
+them.
 """
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 
 from recall.core.agent import summarize_row
 from recall.core.retrieval import fuse, hybrid_search, result_key
 from recall.llm.base import LLM, LLMError
-from recall.storage.base import ROW_METADATA, MemoryStore, ToolError
+from recall.storage.base import ROW_METADATA, MemoryStore, Prefs, ToolError
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +85,45 @@ JUDGE_SCHEMA = {
 }
 
 
+def is_quiet(local: datetime, prefs: Prefs) -> bool:
+    if not prefs.quiet_enabled:
+        return False
+    start = time.fromisoformat(prefs.quiet_start)
+    end = time.fromisoformat(prefs.quiet_end)
+    now = local.time()
+    if start == end:
+        return False
+    if start < end:
+        return start <= now < end
+    return now >= start or now < end
+
+
+def start_of_local_day(now: datetime, prefs: Prefs) -> datetime:
+    local = now.astimezone(ZoneInfo(prefs.timezone))
+    return local.replace(hour=0, minute=0, second=0, microsecond=0)
+
+
+def select_sendable(
+    due: list[dict], now: datetime, prefs: Prefs, sent_today: int, daily_limit: int
+) -> list[dict]:
+    local = now.astimezone(ZoneInfo(prefs.timezone))
+    quiet = is_quiet(local, prefs)
+    allowance = max(daily_limit - sent_today, 0)
+    sendable = []
+    for reminder in due:
+        if reminder["explicit"]:
+            sendable.append(reminder)
+        elif (
+            not prefs.paused
+            and not quiet
+            and reminder["kind"] not in prefs.muted_kinds
+            and allowance > 0
+        ):
+            sendable.append(reminder)
+            allowance -= 1
+    return sendable
+
+
 def _saved_at(result: dict) -> datetime:
     return datetime.fromisoformat(result["row"]["created_at"])
 
@@ -135,9 +179,8 @@ class Nudger:
             }
             for key, c in by_key.items()
         }
-        prompt = (
-            f"Today is {now.date().isoformat()}.\n\nEntries:\n"
-            + json.dumps(entries, ensure_ascii=False, default=str)
+        prompt = f"Today is {now.date().isoformat()}.\n\nEntries:\n" + json.dumps(
+            entries, ensure_ascii=False, default=str
         )
         try:
             verdict = self.llm.ask_json(self.model, JUDGE_SYSTEM, prompt, JUDGE_SCHEMA)
@@ -149,9 +192,11 @@ class Nudger:
         picks.sort(key=lambda pick: pick["importance"], reverse=True)
         return [{**pick, "result": by_key[pick["key"]]} for pick in picks[: self.max_nudges]]
 
-    def scan(self, store: MemoryStore, now: datetime | None = None, force: bool = False) -> list[int]:
+    def scan(
+        self, store: MemoryStore, now: datetime | None = None, force: bool = False
+    ) -> list[int]:
         """Queue any nudges as due reminders, and return their IDs."""
-        now = now or datetime.now(timezone.utc)
+        now = now or datetime.now(UTC)
         prefs = store.prefs()
         if not force and not self._is_due(prefs, now):
             return []
@@ -169,7 +214,7 @@ class Nudger:
         return ids
 
     @staticmethod
-    def _is_due(prefs, now: datetime) -> bool:
+    def _is_due(prefs: Prefs, now: datetime) -> bool:
         if prefs.paused or NUDGE in prefs.muted_kinds:
             return False
         last = prefs.last_nudge_scan

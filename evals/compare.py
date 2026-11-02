@@ -1,8 +1,8 @@
 """Compare saved retrieval runs.
 
-    uv run python evals/compare.py              # the latest 20 runs
-    uv run python evals/compare.py --config agent
-    uv run python evals/compare.py --subjects   # adds pass counts per subject
+uv run python evals/compare.py              # the latest 20 runs
+uv run python evals/compare.py --config agent
+uv run python evals/compare.py --subjects   # adds pass counts per subject
 """
 
 import argparse
@@ -34,8 +34,10 @@ def main() -> None:
         print("No saved runs yet.")
         return
 
-    print(f"{'date':10} {'config':18} {'rows':>5} {'found':>6} {'absent':>6} {'absent s':>8} "
-          f"{'median s':>8} {'slowest':>7} {'graph':>5} {'tokens':>8}  label")
+    print(
+        f"{'date':10} {'config':18} {'rows':>5} {'found':>6} {'absent':>6} {'absent s':>8} "
+        f"{'median s':>8} {'slowest':>7} {'graph':>5} {'tokens':>8}  label"
+    )
     for run in runs:
         tokens = run.get("tokens")
         total = str(tokens["input"] + tokens["output"]) if tokens else "-"

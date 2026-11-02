@@ -2,15 +2,13 @@
 
 from collections.abc import Callable
 
-from recall.auth import TokenStore
+from recall.access import TokenStore, UsageLimiter
 from recall.config import Settings
 from recall.core.agent import Agent
 from recall.core.nudges import Nudger
 from recall.llm.base import LLM
 from recall.service import RecallService
-from recall.storage.base import StoreProvider
-from recall.storage.embeddings import Embedder
-from recall.usage import UsageLimiter
+from recall.storage.base import Embedder, StoreProvider
 
 
 def _claude(settings: Settings) -> LLM:
@@ -18,11 +16,11 @@ def _claude(settings: Settings) -> LLM:
 
     from recall.llm.claude import ClaudeLLM
 
-    return ClaudeLLM(anthropic.Anthropic(), settings.fast_mode)
+    return ClaudeLLM(anthropic.Anthropic())
 
 
 def _local_embedder(settings: Settings) -> Embedder:
-    from recall.storage.embeddings import LocalEmbedder
+    from recall.storage.store import LocalEmbedder
 
     return LocalEmbedder(settings.data_dir / "models")
 
@@ -44,17 +42,13 @@ def _choose(kind: str, name: str, options: dict) -> Callable:
     return options[name]
 
 
-def build_llm(settings: Settings) -> LLM:
-    return _choose("LLM provider", settings.llm_provider, LLMS)(settings)
-
-
 def build_stores(settings: Settings) -> StoreProvider:
     embedder = _choose("embedder", settings.embedder, EMBEDDERS)(settings)
     return _choose("storage backend", settings.storage, STORES)(settings, embedder)
 
 
 def build_service(settings: Settings) -> RecallService:
-    llm = build_llm(settings)
+    llm = _choose("LLM provider", settings.llm_provider, LLMS)(settings)
     return RecallService(
         settings,
         TokenStore(settings.data_dir / "auth.sqlite"),

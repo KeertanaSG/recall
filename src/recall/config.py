@@ -20,7 +20,6 @@ class Settings:
     default_timezone: str = "Asia/Kolkata"
     model: str = "claude-haiku-5-5"
     effort: str = "low"
-    fast_mode: bool = False
     retrieval_model: str = "claude-haiku-5-5"
     design_model: str = "claude-opus-5-5"
     max_reminders_per_day: int = 5
@@ -56,7 +55,6 @@ class Settings:
             model=os.environ.get("RECALL_MODEL", "claude-haiku-5-5"),
             design_model=os.environ.get("RECALL_DESIGN_MODEL", "claude-opus-5-5"),
             effort=os.environ.get("RECALL_EFFORT", "low"),
-            fast_mode=os.environ.get("RECALL_FAST_MODE", "false").lower() == "true",
             retrieval_model=os.environ.get("RECALL_RETRIEVAL_MODEL", "claude-haiku-5-5"),
             max_reminders_per_day=int(os.environ.get("RECALL_MAX_REMINDERS_PER_DAY", "5")),
             max_messages_per_user_per_day=int(

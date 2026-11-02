@@ -4,7 +4,6 @@ from logging.handlers import RotatingFileHandler
 from recall.channels.telegram import build_application
 from recall.config import Settings
 
-
 LOG_BYTES = 5_000_000
 LOG_BACKUPS = 3
 

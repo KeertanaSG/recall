@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from recall.storage.embeddings import EMBEDDING_DIM, EmbeddingError
+from recall.storage.base import EMBEDDING_DIM, EmbeddingError
 from recall.storage.store import Store
 
 
@@ -45,7 +45,11 @@ def expenses(store):
     store.create_table(
         "expenses",
         "Money the user spent",
-        [{"name": "item", "type": "text"}, {"name": "amount", "type": "real"}, {"name": "spent_on", "type": "date"}],
+        [
+            {"name": "item", "type": "text"},
+            {"name": "amount", "type": "real"},
+            {"name": "spent_on", "type": "date"},
+        ],
     )
     store.turn_id = None
     return "expenses"

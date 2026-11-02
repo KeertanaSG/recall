@@ -1,7 +1,7 @@
 """The module boundaries, checked so they can't quietly erode, and proof that swapping works."""
 
 import ast
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -15,8 +15,30 @@ from recall.llm.base import Completion, LLMError, Stop, ToolCall
 SOURCE = Path(__file__).parents[1] / "src" / "recall"
 # Only these may touch a vendor. Everything else goes through the interfaces.
 FORBIDDEN = {
-    "core": {"anthropic", "telegram", "fastapi", "mcp", "sqlite3", "sqlite_vec", "recall.channels", "recall.llm.claude", "recall.storage.store", "recall.storage.embeddings", "recall.factory"},
-    "service.py": {"anthropic", "telegram", "fastapi", "mcp", "sqlite3", "sqlite_vec", "recall.channels", "recall.llm.claude", "recall.storage.store", "recall.factory"},
+    "core": {
+        "anthropic",
+        "telegram",
+        "fastapi",
+        "mcp",
+        "sqlite3",
+        "sqlite_vec",
+        "recall.channels",
+        "recall.llm.claude",
+        "recall.storage.store",
+        "recall.factory",
+    },
+    "service.py": {
+        "anthropic",
+        "telegram",
+        "fastapi",
+        "mcp",
+        "sqlite3",
+        "sqlite_vec",
+        "recall.channels",
+        "recall.llm.claude",
+        "recall.storage.store",
+        "recall.factory",
+    },
     "llm/base.py": {"anthropic"},
     "storage/base.py": {"sqlite3", "sqlite_vec"},
 }
@@ -102,9 +124,12 @@ def test_provider_errors_fail_the_turn_cleanly(store, expenses):
 
 
 def test_nudges_survive_a_provider_failure(store):
-    candidate = {"table": "loans", "row": {"id": 1, "person": "A", "created_at": "2026-10-01T00:00:00+00:00"}}
+    candidate = {
+        "table": "loans",
+        "row": {"id": 1, "person": "A", "created_at": "2026-10-01T00:00:00+00:00"},
+    }
     nudger = Nudger(OtherLLM(answers=LLMError("down")), "m")
-    assert nudger.judge(store, [candidate], datetime(2026, 11, 1, tzinfo=timezone.utc)) is None
+    assert nudger.judge(store, [candidate], datetime(2026, 11, 1, tzinfo=UTC)) is None
 
 
 def test_a_new_provider_only_needs_registering(tmp_path, monkeypatch):

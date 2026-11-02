@@ -1,9 +1,11 @@
-"""What Recall needs from storage. A new backend implements these two protocols."""
+"""What Recall needs from storage. A new backend implements these protocols."""
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Literal, Protocol
 
+EMBEDDING_DIM = 384
+InputType = Literal["document", "query"]
 REMINDERS = "_reminders"
 ROW_METADATA = ("id", "created_at", "updated_at", "source_text")
 COLUMN_TYPES = {
@@ -14,6 +16,14 @@ COLUMN_TYPES = {
     "date": "TEXT",
     "datetime": "TEXT",
 }
+
+
+class EmbeddingError(Exception):
+    pass
+
+
+class Embedder(Protocol):
+    def embed(self, texts: list[str], input_type: InputType) -> list[list[float]]: ...
 
 
 class ToolError(Exception):
@@ -47,7 +57,9 @@ class MemoryStore(Protocol):
         self, name: str, description: str, columns: list[dict], confirmed_distinct: bool = False
     ) -> None: ...
 
-    def add_column(self, table: str, name: str, column_type: str, description: str = "") -> None: ...
+    def add_column(
+        self, table: str, name: str, column_type: str, description: str = ""
+    ) -> None: ...
 
     def boolean_columns(self, table: str) -> frozenset[str]: ...
 
