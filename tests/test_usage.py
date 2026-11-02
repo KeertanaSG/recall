@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -45,6 +46,17 @@ def test_old_days_are_not_kept(tmp_path):
     usage.spend(1, NOW)
     usage.spend(2, NOW + timedelta(days=1))
     assert usage.conn.execute("SELECT COUNT(*) FROM usage").fetchone()[0] == 1
+
+
+def test_total_limit_holds_across_separate_connections(tmp_path):
+    """Each limiter stands in for a process: the bot, the API and the MCP server."""
+    limiters = [limiter(tmp_path, per_user=1000, total=40) for _ in range(4)]
+
+    def spend_many(usage):
+        return sum(usage.spend(1, NOW) is Limit.NONE for _ in range(100))
+
+    with ThreadPoolExecutor(len(limiters)) as pool:
+        assert sum(pool.map(spend_many, limiters)) == 40
 
 
 @pytest.mark.parametrize(("value", "expected"), [("*", None), (" * ", None), ("1, 2,", frozenset({1, 2}))])

@@ -30,7 +30,10 @@ class UsageLimiter:
 
     def spend(self, user_id: int, now: datetime | None = None) -> Limit:
         """Record one message, unless a limit has been reached."""
-        with self.lock:
+        # The bot, API and MCP server each have a connection, so the check and the count must
+        # share one write transaction, or together they could spend past the limit.
+        with self.lock, self.conn:
+            self.conn.execute("BEGIN IMMEDIATE")
             return self._spend(user_id, now)
 
     def _spend(self, user_id: int, now: datetime | None) -> Limit:
