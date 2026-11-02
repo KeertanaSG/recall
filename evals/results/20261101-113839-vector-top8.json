@@ -1,0 +1,692 @@
+{
+  "summary": {
+    "run_id": "20261101-113839-vector-top8",
+    "created_at": "2026-11-01T11:38:39+00:00",
+    "config": "vector-top8",
+    "label": "check that saving works",
+    "rows": 5524,
+    "answerable_passed": 21,
+    "answerable_total": 24,
+    "absent_passed": 0,
+    "absent_total": 10,
+    "absent_mean_s": 0.02,
+    "absent_max_s": 0.03,
+    "median_s": 0.02,
+    "mean_s": 0.02,
+    "sum_s": 0.7,
+    "slowest_s": 0.03,
+    "slowest_question": "Which film made me cry with my mother?",
+    "graph_used": null,
+    "tokens": null,
+    "subjects": {
+      "movies": {
+        "passed": 4,
+        "total": 4,
+        "mean_s": 0.03,
+        "max_s": 0.03
+      },
+      "books": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 0.02,
+        "max_s": 0.03
+      },
+      "food": {
+        "passed": 2,
+        "total": 3,
+        "mean_s": 0.02,
+        "max_s": 0.02
+      },
+      "money": {
+        "passed": 2,
+        "total": 3,
+        "mean_s": 0.02,
+        "max_s": 0.02
+      },
+      "tasks": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 0.02,
+        "max_s": 0.03
+      },
+      "people": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 0.02,
+        "max_s": 0.02
+      },
+      "trips": {
+        "passed": 1,
+        "total": 2,
+        "mean_s": 0.02,
+        "max_s": 0.02
+      },
+      "notes": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 0.03,
+        "max_s": 0.03
+      },
+      "absent": {
+        "passed": 0,
+        "total": 10,
+        "mean_s": 0.02,
+        "max_s": 0.03
+      }
+    }
+  },
+  "questions": [
+    {
+      "subject": "movies",
+      "question": "Which film made me cry with my mother?",
+      "needle": "coco",
+      "returned": [
+        "movies#144",
+        "movies#209",
+        "movies#222",
+        "movies#43",
+        "movies#557",
+        "movies#655",
+        "movies#730",
+        "movies#769"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "movies",
+      "question": "What movie really stressed me out?",
+      "needle": "whiplash",
+      "returned": [
+        "movies#209",
+        "movies#316",
+        "movies#372",
+        "movies#410",
+        "movies#43",
+        "movies#551",
+        "movies#569",
+        "movies#88"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "movies",
+      "question": "What did I watch on a plane?",
+      "needle": "paddington",
+      "returned": [
+        "movies#1",
+        "movies#166",
+        "movies#286",
+        "movies#366",
+        "movies#486",
+        "movies#490",
+        "movies#732",
+        "trips#19"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "movies",
+      "question": "Which film was about learning to talk to extraterrestrials?",
+      "needle": "arrival",
+      "returned": [
+        "movies#13",
+        "movies#202",
+        "movies#278",
+        "movies#388",
+        "movies#419",
+        "movies#721",
+        "movies#750",
+        "movies#769"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "books",
+      "question": "Which book changed my morning routine?",
+      "needle": "habits",
+      "returned": [
+        "books#1",
+        "books#128",
+        "books#141",
+        "books#214",
+        "books#224",
+        "books#41",
+        "books#69",
+        "books#92"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "books",
+      "question": "What was the novel my friend Meera suggested?",
+      "needle": "overstory",
+      "returned": [
+        "books#157",
+        "books#161",
+        "books#166",
+        "books#20",
+        "books#259",
+        "books#279",
+        "books#302",
+        "books#54"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "books",
+      "question": "What did I read about how civilisation developed?",
+      "needle": "sapiens",
+      "returned": [
+        "books#303",
+        "notes#11",
+        "notes#20",
+        "notes#425",
+        "notes#429",
+        "notes#43",
+        "notes#434",
+        "notes#437"
+      ],
+      "seconds": 0.01,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "food",
+      "question": "Where did I take mom and dad for their special day?",
+      "needle": "karavalli",
+      "returned": [
+        "restaurants#374",
+        "tasks#102",
+        "tasks#498",
+        "trips#13",
+        "trips#57",
+        "trips#65",
+        "trips#82",
+        "trips#96"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "food",
+      "question": "Is there somewhere calm I can work from?",
+      "needle": "dyu",
+      "returned": [
+        "notes#15",
+        "notes#16",
+        "notes#18",
+        "notes#21",
+        "notes#27",
+        "notes#42",
+        "notes#45",
+        "notes#6"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "food",
+      "question": "Which place made me sick?",
+      "needle": "nagarjuna",
+      "returned": [
+        "restaurants#503",
+        "trips#40",
+        "trips#47",
+        "trips#53",
+        "trips#71",
+        "trips#89",
+        "trips#90",
+        "trips#96"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "money",
+      "question": "What did I buy for my home office?",
+      "needle": "desk",
+      "returned": [
+        "expenses#1191",
+        "expenses#1506",
+        "expenses#1701",
+        "expenses#208",
+        "expenses#2217",
+        "expenses#2409",
+        "expenses#512",
+        "expenses#873"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "money",
+      "question": "Who needed help with housing costs?",
+      "needle": "rohan",
+      "returned": [
+        "expenses#1002",
+        "expenses#1074",
+        "expenses#1198",
+        "expenses#152",
+        "expenses#823",
+        "loans#69",
+        "loans#70",
+        "loans#88"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "money",
+      "question": "How much was the dog's doctor?",
+      "needle": "vet",
+      "returned": [
+        "expenses#1299",
+        "expenses#1409",
+        "expenses#1687",
+        "expenses#2129",
+        "expenses#2198",
+        "expenses#2364",
+        "expenses#359",
+        "expenses#973"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "tasks",
+      "question": "Is anything coming up for my vehicle?",
+      "needle": "insurance",
+      "returned": [
+        "expenses#1031",
+        "expenses#1739",
+        "expenses#1781",
+        "expenses#1914",
+        "expenses#2018",
+        "expenses#210",
+        "expenses#498",
+        "tasks#1"
+      ],
+      "seconds": 0.01,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "tasks",
+      "question": "What did I say I'd do for the friend who's job hunting?",
+      "needle": "resume",
+      "returned": [
+        "tasks#125",
+        "tasks#183",
+        "tasks#2",
+        "tasks#200",
+        "tasks#205",
+        "tasks#214",
+        "tasks#369",
+        "tasks#83"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "tasks",
+      "question": "Do I have any paperwork to pick up for travel?",
+      "needle": "passport_appt",
+      "returned": [
+        "expenses#1617",
+        "expenses#1814",
+        "expenses#1826",
+        "expenses#1828",
+        "expenses#1980",
+        "expenses#1985",
+        "expenses#452",
+        "tasks#3"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "people",
+      "question": "Who can't eat nuts?",
+      "needle": "peanuts",
+      "returned": [
+        "people#1",
+        "people#131",
+        "people#151",
+        "people#184",
+        "people#196",
+        "people#200",
+        "people#76",
+        "people#86"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "people",
+      "question": "Which friend lives in Germany?",
+      "needle": "vikram",
+      "returned": [
+        "people#101",
+        "people#13",
+        "people#136",
+        "people#2",
+        "people#40",
+        "people#42",
+        "people#50",
+        "people#61"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "people",
+      "question": "Who would like a ceramics gift?",
+      "needle": "ananya",
+      "returned": [
+        "people#3",
+        "tasks#131",
+        "tasks#37",
+        "tasks#38",
+        "tasks#386",
+        "tasks#435",
+        "tasks#497",
+        "tasks#51"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "trips",
+      "question": "Where did we stay among the estates?",
+      "needle": "coorg",
+      "returned": [
+        "people#13",
+        "people#145",
+        "people#147",
+        "people#37",
+        "trips#57",
+        "trips#65",
+        "trips#82",
+        "trips#96"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "trips",
+      "question": "Which trip had rock climbing?",
+      "needle": "hampi",
+      "returned": [
+        "trips#100",
+        "trips#19",
+        "trips#2",
+        "trips#3",
+        "trips#43",
+        "trips#59",
+        "trips#64",
+        "trips#72"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "notes",
+      "question": "Who has my extra key?",
+      "needle": "key",
+      "returned": [
+        "notes#1",
+        "tasks#132",
+        "tasks#163",
+        "tasks#177",
+        "tasks#300",
+        "tasks#326",
+        "tasks#457",
+        "tasks#500"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "notes",
+      "question": "What was my startup idea about gardening?",
+      "needle": "plants",
+      "returned": [
+        "notes#161",
+        "tasks#197",
+        "tasks#215",
+        "tasks#250",
+        "tasks#276",
+        "tasks#384",
+        "tasks#499",
+        "tasks#74"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "notes",
+      "question": "When did I last service the air conditioner?",
+      "needle": "filter",
+      "returned": [
+        "notes#257",
+        "tasks#1",
+        "tasks#253",
+        "tasks#286",
+        "tasks#427",
+        "tasks#444",
+        "tasks#482",
+        "tasks#59"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "What is my passport number?",
+      "needle": null,
+      "returned": [
+        "tasks#112",
+        "tasks#120",
+        "tasks#192",
+        "tasks#279",
+        "tasks#289",
+        "tasks#3",
+        "tasks#436",
+        "tasks#488"
+      ],
+      "seconds": 0.03,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "What's my blood group?",
+      "needle": null,
+      "returned": [
+        "people#116",
+        "people#151",
+        "people#154",
+        "people#190",
+        "people#192",
+        "people#200",
+        "people#76",
+        "people#86"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "When is my sister's wedding?",
+      "needle": null,
+      "returned": [
+        "tasks#105",
+        "tasks#183",
+        "tasks#293",
+        "tasks#335",
+        "tasks#389",
+        "tasks#406",
+        "tasks#481",
+        "tasks#55"
+      ],
+      "seconds": 0.01,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "What did I do in Japan?",
+      "needle": null,
+      "returned": [
+        "trips#47",
+        "trips#61",
+        "trips#67",
+        "trips#71",
+        "trips#82",
+        "trips#88",
+        "trips#90",
+        "trips#96"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "How much did I spend on skiing gear?",
+      "needle": null,
+      "returned": [
+        "expenses#1314",
+        "expenses#1470",
+        "expenses#1764",
+        "expenses#2462",
+        "expenses#2487",
+        "expenses#372",
+        "expenses#528",
+        "expenses#646"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "Who is my dentist?",
+      "needle": null,
+      "returned": [
+        "tasks#175",
+        "tasks#2",
+        "tasks#24",
+        "tasks#292",
+        "tasks#297",
+        "tasks#422",
+        "tasks#45",
+        "tasks#465"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "What's the opera I saw last year?",
+      "needle": null,
+      "returned": [
+        "movies#153",
+        "movies#210",
+        "movies#396",
+        "movies#580",
+        "movies#632",
+        "movies#734",
+        "movies#93",
+        "movies#95"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "Which of my friends owns a Tesla?",
+      "needle": null,
+      "returned": [
+        "people#125",
+        "people#14",
+        "people#148",
+        "people#153",
+        "people#159",
+        "people#21",
+        "people#33",
+        "people#40"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "What did I name my boat?",
+      "needle": null,
+      "returned": [
+        "tasks#131",
+        "tasks#155",
+        "tasks#384",
+        "tasks#399",
+        "tasks#453",
+        "tasks#456",
+        "tasks#497",
+        "tasks#499"
+      ],
+      "seconds": 0.02,
+      "graph_used": null,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "Did I ever go to Iceland?",
+      "needle": null,
+      "returned": [
+        "trips#100",
+        "trips#19",
+        "trips#38",
+        "trips#47",
+        "trips#68",
+        "trips#71",
+        "trips#72",
+        "trips#90"
+      ],
+      "seconds": 0.01,
+      "graph_used": null,
+      "passed": false
+    }
+  ]
+}

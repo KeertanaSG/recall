@@ -1,0 +1,495 @@
+{
+  "summary": {
+    "run_id": "20261101-122903-agent-1-attempt-main-haiku-haiku-prefetch",
+    "created_at": "2026-11-01T12:29:03+00:00",
+    "config": "agent-1-attempt-main-haiku-haiku-prefetch",
+    "label": "prefetch run 2",
+    "rows": 5524,
+    "answerable_passed": 24,
+    "answerable_total": 24,
+    "absent_passed": 9,
+    "absent_total": 10,
+    "absent_mean_s": 4.45,
+    "absent_max_s": 5.16,
+    "median_s": 2.34,
+    "mean_s": 2.99,
+    "sum_s": 101.6,
+    "slowest_s": 5.16,
+    "slowest_question": "What's my blood group?",
+    "graph_used": 14,
+    "tokens": {
+      "input": 106025,
+      "output": 8938,
+      "calls": {
+        "main": 48,
+        "graph": 28
+      },
+      "model_seconds": {
+        "main": 70.7,
+        "graph": 29.5
+      }
+    },
+    "subjects": {
+      "movies": {
+        "passed": 4,
+        "total": 4,
+        "mean_s": 1.83,
+        "max_s": 2.13
+      },
+      "books": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 2.16,
+        "max_s": 2.49
+      },
+      "food": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 2.49,
+        "max_s": 4.2
+      },
+      "money": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 3.78,
+        "max_s": 4.93
+      },
+      "tasks": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 2.06,
+        "max_s": 2.23
+      },
+      "people": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 2.08,
+        "max_s": 2.76
+      },
+      "trips": {
+        "passed": 2,
+        "total": 2,
+        "mean_s": 1.7,
+        "max_s": 2.18
+      },
+      "notes": {
+        "passed": 3,
+        "total": 3,
+        "mean_s": 2.9,
+        "max_s": 5.04
+      },
+      "absent": {
+        "passed": 9,
+        "total": 10,
+        "mean_s": 4.45,
+        "max_s": 5.16
+      }
+    }
+  },
+  "questions": [
+    {
+      "subject": "movies",
+      "question": "Which film made me cry with my mother?",
+      "needle": "coco",
+      "returned": [
+        "movies#43"
+      ],
+      "answer": "Coco. You bawled at the ending and watched it with your mum.",
+      "seconds": 1.62,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "movies",
+      "question": "What movie really stressed me out?",
+      "needle": "whiplash",
+      "returned": [
+        "movies#209"
+      ],
+      "answer": "Whiplash fits best. Your note says you left the theatre with your heart racing, and you rated it 8.",
+      "seconds": 1.99,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "movies",
+      "question": "What did I watch on a plane?",
+      "needle": "paddington",
+      "returned": [
+        "movies#286"
+      ],
+      "answer": "You watched Paddington 2 on the flight to Delhi, and you rated it 8.",
+      "seconds": 2.13,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "movies",
+      "question": "Which film was about learning to talk to extraterrestrials?",
+      "needle": "arrival",
+      "returned": [
+        "movies#388"
+      ],
+      "answer": "That sounds like **Arrival**, which you rated 10 and noted as \"aliens and linguistics\".",
+      "seconds": 1.58,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "books",
+      "question": "Which book changed my morning routine?",
+      "needle": "habits",
+      "returned": [
+        "books#1"
+      ],
+      "answer": "The closest match is Atomic Habits by James Clear, which you noted got you to start journaling daily. Your saved note doesn't say it was a morning routine specifically, so I can't confirm that part.",
+      "seconds": 2.49,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "books",
+      "question": "What was the novel my friend Meera suggested?",
+      "needle": "overstory",
+      "returned": [
+        "books#302"
+      ],
+      "answer": "Meera recommended *The Overstory* by Richard Powers.",
+      "seconds": 1.54,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "books",
+      "question": "What did I read about how civilisation developed?",
+      "needle": "sapiens",
+      "returned": [
+        "books#303"
+      ],
+      "answer": "You read Sapiens by Yuval Noah Harari, and you noted that you loved the farming chapter. I have nothing else saved on this topic.",
+      "seconds": 2.45,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "food",
+      "question": "Where did I take mom and dad for their special day?",
+      "needle": "karavalli",
+      "returned": [
+        "restaurants#374"
+      ],
+      "answer": "You took your parents to Karavalli for their anniversary, and you rated it 9.",
+      "seconds": 1.37,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "food",
+      "question": "Is there somewhere calm I can work from?",
+      "needle": "dyu",
+      "returned": [
+        "restaurants#479"
+      ],
+      "answer": "Yes: Dyu Art Cafe is quiet, has good wifi, and you can sit there with a laptop for hours. It's rated 8.0.",
+      "seconds": 4.2,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "food",
+      "question": "Which place made me sick?",
+      "needle": "nagarjuna",
+      "returned": [
+        "restaurants#503"
+      ],
+      "answer": "Spice Garden made you sick. Your note says it was \"way too hot\" and gave you an upset stomach the next day.",
+      "seconds": 1.89,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "money",
+      "question": "What did I buy for my home office?",
+      "needle": "desk",
+      "returned": [
+        "expenses#208"
+      ],
+      "answer": "You bought a standing desk for \u20b918,500 under home. That is the only home office purchase I have saved.",
+      "seconds": 4.93,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "money",
+      "question": "Who needed help with housing costs?",
+      "needle": "rohan",
+      "returned": [
+        "loans#1"
+      ],
+      "answer": "Rohan. You lent him 5000 for his rent, to be returned after his bonus. Nothing else saved mentions housing costs.",
+      "seconds": 4.87,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "money",
+      "question": "How much was the dog's doctor?",
+      "needle": "vet",
+      "returned": [
+        "expenses#973"
+      ],
+      "answer": "The vet visit for Bruno cost 2400. No spend date is saved for it.",
+      "seconds": 1.54,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "tasks",
+      "question": "Is anything coming up for my vehicle?",
+      "needle": "insurance",
+      "returned": [
+        "tasks#1"
+      ],
+      "answer": "Yes. Your car insurance needs renewing before it lapses, due 2026-12-14.",
+      "seconds": 2.1,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "tasks",
+      "question": "What did I say I'd do for the friend who's job hunting?",
+      "needle": "resume",
+      "returned": [
+        "tasks#2"
+      ],
+      "answer": "You said you'd review Neha's resume. No due date is saved for it. I'm assuming Neha is the friend you mean, since the entry doesn't say she's job hunting.",
+      "seconds": 2.23,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "tasks",
+      "question": "Do I have any paperwork to pick up for travel?",
+      "needle": "passport_appt",
+      "returned": [
+        "tasks#3"
+      ],
+      "answer": "You have one: collect the visa documents from the embassy, due 2026-12-02 and not marked done.",
+      "seconds": 1.85,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "people",
+      "question": "Who can't eat nuts?",
+      "needle": "peanuts",
+      "returned": [
+        "people#1"
+      ],
+      "answer": "Meera is allergic to peanuts. That's the only saved entry about nut allergies that I found, and it covers peanuts specifically, not tree nuts.",
+      "seconds": 2.76,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "people",
+      "question": "Which friend lives in Germany?",
+      "needle": "vikram",
+      "returned": [
+        "people#2"
+      ],
+      "answer": "Vikram moved to Berlin and works at a bike startup.",
+      "seconds": 1.42,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "people",
+      "question": "Who would like a ceramics gift?",
+      "needle": "ananya",
+      "returned": [
+        "people#3"
+      ],
+      "answer": "Ananya would likely like a ceramics gift, since she loves pottery. Her birthday is 12 March, if you're planning ahead.",
+      "seconds": 2.05,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "trips",
+      "question": "Where did we stay among the estates?",
+      "needle": "coorg",
+      "returned": [
+        "trips#1"
+      ],
+      "answer": "You stayed at a homestay on a coffee plantation in Coorg.",
+      "seconds": 1.22,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "trips",
+      "question": "Which trip had rock climbing?",
+      "needle": "hampi",
+      "returned": [
+        "trips#2"
+      ],
+      "answer": "Hampi. Your note there says you went bouldering at sunrise, which is a form of rock climbing.",
+      "seconds": 2.18,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "notes",
+      "question": "Who has my extra key?",
+      "needle": "key",
+      "returned": [
+        "notes#1"
+      ],
+      "answer": "Your spare house key is with Mrs Rao next door.",
+      "seconds": 1.84,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "notes",
+      "question": "What was my startup idea about gardening?",
+      "needle": "plants",
+      "returned": [
+        "notes#161"
+      ],
+      "answer": "You saved an idea for an app that tracks when to water each plant. The note doesn't say it was a startup idea, only \"idea.\"",
+      "seconds": 1.81,
+      "graph_used": false,
+      "passed": true
+    },
+    {
+      "subject": "notes",
+      "question": "When did I last service the air conditioner?",
+      "needle": "filter",
+      "returned": [
+        "notes#257"
+      ],
+      "answer": "Your closest saved entry is that the AC filter was last cleaned in October, with no exact date and no mention of a full service. I have nothing saved about a full AC service.",
+      "seconds": 5.04,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "What is my passport number?",
+      "needle": null,
+      "returned": [],
+      "answer": "I have nothing saved about your passport number. I also don't store ID document numbers, so if you'd like it kept, you'll need to keep it somewhere else.",
+      "seconds": 4.23,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "What's my blood group?",
+      "needle": null,
+      "returned": [],
+      "answer": "I have nothing saved about your blood group. I don't store medical records, so if you want to check it, your medical records or a doctor are the place to look.",
+      "seconds": 5.16,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "When is my sister's wedding?",
+      "needle": null,
+      "returned": [],
+      "answer": "I have nothing saved about your sister's wedding. If you tell me the date, I can save it and set a reminder.",
+      "seconds": 4.05,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "What did I do in Japan?",
+      "needle": null,
+      "returned": [
+        "trips#13",
+        "trips#47",
+        "trips#57",
+        "trips#61",
+        "trips#65",
+        "trips#67",
+        "trips#68",
+        "trips#71",
+        "trips#72",
+        "trips#82",
+        "trips#88",
+        "trips#9",
+        "trips#90",
+        "trips#92",
+        "trips#96"
+      ],
+      "answer": "I have nothing saved about Japan. Your saved trips are to Kochi and Ooty and, but none of them mention Japan.",
+      "seconds": 4.4,
+      "graph_used": true,
+      "passed": false
+    },
+    {
+      "subject": "absent",
+      "question": "How much did I spend on skiing gear?",
+      "needle": null,
+      "returned": [],
+      "answer": "I have nothing saved about skiing gear. Searches of expenses and the rest of your records found no ski-related entries.\n\nThe shoe purchases that came up automatically are regular shoes, not skiing gear. If you bought ski boots or other gear, tell me the item and amount and I'll save it.",
+      "seconds": 5.13,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "Who is my dentist?",
+      "needle": null,
+      "returned": [],
+      "answer": "I don't have a dentist saved. Tell me their name and I'll remember it for you.",
+      "seconds": 4.17,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "What's the opera I saw last year?",
+      "needle": null,
+      "returned": [],
+      "answer": "Nothing saved about an opera you saw last year. If you tell me what it was, I can save it.",
+      "seconds": 4.19,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "Which of my friends owns a Tesla?",
+      "needle": null,
+      "returned": [],
+      "answer": "I have nothing saved about any friend owning a Tesla.",
+      "seconds": 4.25,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "What did I name my boat?",
+      "needle": null,
+      "returned": [],
+      "answer": "You don't have anything saved about a boat's name.",
+      "seconds": 4.2,
+      "graph_used": true,
+      "passed": true
+    },
+    {
+      "subject": "absent",
+      "question": "Did I ever go to Iceland?",
+      "needle": null,
+      "returned": [],
+      "answer": "Nothing saved about Iceland. Your trips table only has Ooty entries, so I can't find a trip there.",
+      "seconds": 4.69,
+      "graph_used": true,
+      "passed": true
+    }
+  ]
+}
