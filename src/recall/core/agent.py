@@ -1,6 +1,5 @@
 """The Claude agent loop, plus the citation check on its final answer."""
 
-import base64
 import json
 import logging
 import re
@@ -8,13 +7,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
-import anthropic
-
-from recall.llm import create_message
-from recall.retrieval import Retriever, hybrid_search, result_key
-from recall.schema_design import TableDesigner
-from recall.store import ROW_METADATA, Store, ToolError
-from recall.tools import ADD_ONLY_TOOLS, Tools
+from recall.core.retrieval import Retriever, hybrid_search, result_key
+from recall.core.schema_design import TableDesigner
+from recall.core.tools import ADD_ONLY_TOOLS, Tools
+from recall.llm.base import LLM, LLMError, Stop, ToolResult
+from recall.storage.base import ROW_METADATA, MemoryStore, ToolError
 
 log = logging.getLogger(__name__)
 
@@ -23,7 +20,6 @@ MAX_SOURCES_LISTED = 3
 MAX_SOURCE_DETAILS = 2
 MAX_SOURCE_LENGTH = 80
 PREFETCH_LIMIT = 15
-PHOTO_TYPE = "image/jpeg"  # Telegram converts every photo to JPEG.
 REMINDER_INTERNALS = {"kind", "explicit", "status", "sent_at", "linked_table", "linked_id"}
 DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
 CITED_ROWS = r"_?[a-z][a-z0-9_]*#\d+(?:\s*,\s*\d+)*"
@@ -231,7 +227,7 @@ def summarize_sources(sources: list[Source]) -> list[str]:
     return lines
 
 
-def resolve_citations(text: str, store: Store) -> tuple[str, list[Source]]:
+def resolve_citations(text: str, store: MemoryStore) -> tuple[str, list[Source]]:
     """Replace citation markers with sources read from the database, not from the model."""
     sources: list[Source] = []
     missing = False
@@ -254,7 +250,7 @@ def resolve_citations(text: str, store: Store) -> tuple[str, list[Source]]:
     return clean, sources
 
 
-def message_context(store: Store, now: datetime) -> str:
+def message_context(store: MemoryStore, now: datetime) -> str:
     tz = ZoneInfo(store.prefs().timezone)
     local = now.astimezone(tz)
     calendar = ", ".join(
@@ -272,7 +268,7 @@ def message_context(store: Store, now: datetime) -> str:
     )
 
 
-def prefetched_entries(store: Store, text: str) -> str:
+def prefetched_entries(store: MemoryStore, text: str) -> str:
     """Run the free local searches first, so a simple question may need no search tool."""
     entries = {result_key(r): r["row"] for r in hybrid_search(store, text, PREFETCH_LIMIT)}
     if not entries:
@@ -285,32 +281,25 @@ def prefetched_entries(store: Store, text: str) -> str:
     )
 
 
-def image_block(image: bytes) -> dict:
-    data = base64.standard_b64encode(image).decode()
-    return {"type": "image", "source": {"type": "base64", "media_type": PHOTO_TYPE, "data": data}}
-
-
 class Agent:
     def __init__(
         self,
-        client: anthropic.Anthropic,
+        llm: LLM,
         model: str,
         effort: str,
-        fast: bool = False,
         retrieval_model: str | None = None,
         design_model: str | None = None,
         prefetch: bool = False,
     ):
-        self.client = client
+        self.llm = llm
         self.model = model
         self.effort = effort
-        self.fast = fast
         self.prefetch = prefetch
-        self.retriever = Retriever(client, retrieval_model or model, fast=fast)
-        self.designer = TableDesigner(client, design_model or model)
+        self.retriever = Retriever(llm, retrieval_model or model)
+        self.designer = TableDesigner(llm, design_model or model)
 
     def respond(
-        self, store: Store, text: str, now: datetime | None = None, image: bytes | None = None
+        self, store: MemoryStore, text: str, now: datetime | None = None, image: bytes | None = None
     ) -> Reply:
         now = now or datetime.now(timezone.utc)
         tools = Tools(store, text, now, self.retriever, self.designer)
@@ -318,10 +307,8 @@ class Agent:
         if self.prefetch:
             context += prefetched_entries(store, text)
         content = f"<context>\n{context}\n</context>\n\n{text}"
-        if image is not None:
-            # Only this turn sees the photo: it's never stored, and the chat history keeps the text.
-            content = [image_block(image), {"type": "text", "text": content}]
-        messages = [*store.recent_messages(), {"role": "user", "content": content}]
+        # Only this turn sees a photo: it's never stored, and the chat history keeps the text.
+        messages = [*store.recent_messages(), self.llm.user_message(content, image)]
         final = self._attempt(store, messages, tools)
         clean, sources = resolve_citations(final, store)
         if store.turn_id is not None:
@@ -329,7 +316,7 @@ class Agent:
         store.log_exchange(text, clean)
         return Reply(clean, sources)
 
-    def capture(self, store: Store, text: str, now: datetime | None = None) -> list[str]:
+    def capture(self, store: MemoryStore, text: str, now: datetime | None = None) -> list[str]:
         """Save a message from another app, and return what was added.
 
         Whoever calls this may only hold write access, so the turn can't read saved entries or
@@ -339,57 +326,34 @@ class Agent:
         now = now or datetime.now(timezone.utc)
         tools = Tools(store, text, now, None, self.designer, ADD_ONLY_TOOLS)
         content = f"<context>\n{message_context(store, now)}\n</context>\n\n{text}"
-        self._attempt(store, [{"role": "user", "content": content}], tools, CAPTURE_NOTE)
+        self._attempt(store, [self.llm.user_message(content)], tools, CAPTURE_NOTE)
         return tools.saved
 
-    def _attempt(self, store: Store, messages: list[dict], tools: Tools, note: str = "") -> str:
+    def _attempt(self, store: MemoryStore, messages: list[dict], tools: Tools, note: str = "") -> str:
         try:
             return self._run(messages, tools, note)
-        except (anthropic.APIError, TurnFailed) as exc:
+        except (LLMError, TurnFailed) as exc:
             if store.turn_id is not None:
                 store.undo(store.turn_id)
             raise TurnFailed(str(exc)) from exc
 
     def _run(self, messages: list[dict], tools: Tools, note: str = "") -> str:
-        system = [{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}]
-        if note:
-            system.append({"type": "text", "text": note})
         for _ in range(MAX_STEPS):
-            response = create_message(
-                self.client,
-                self.model,
-                self.fast,
-                max_tokens=16000,
-                system=system,
-                tools=tools.schemas,
-                messages=messages,
-                output_config={"effort": self.effort},
-            )
-            log.info(
-                "model step: stop=%s input=%s output=%s",
-                response.stop_reason,
-                response.usage.input_tokens,
-                response.usage.output_tokens,
-            )
-            if response.stop_reason == "refusal":
+            reply = self.llm.chat(self.model, SYSTEM_PROMPT, messages, tools.schemas, self.effort, note)
+            if reply.stop is Stop.REFUSED:
                 raise TurnFailed("The model declined this message.")
-            if response.stop_reason == "max_tokens":
+            if reply.stop is Stop.CUT_OFF:
                 raise TurnFailed("The model's response was cut off.")
 
-            messages.append({"role": "assistant", "content": response.content})
-            if response.stop_reason != "tool_use":
-                return "".join(b.text for b in response.content if b.type == "text").strip()
+            messages.append(self.llm.assistant_message(reply))
+            if reply.stop is not Stop.TOOL_USE:
+                return reply.text.strip()
 
             results = []
-            for block in response.content:
-                if block.type != "tool_use":
-                    continue
-                result = {"type": "tool_result", "tool_use_id": block.id}
+            for call in reply.tool_calls:
                 try:
-                    result["content"] = tools.run(block.name, block.input)
+                    results.append(ToolResult(call.id, tools.run(call.name, call.input)))
                 except ToolError as exc:
-                    result["content"] = str(exc)
-                    result["is_error"] = True
-                results.append(result)
-            messages.append({"role": "user", "content": results})
+                    results.append(ToolResult(call.id, str(exc), True))
+            messages.append(self.llm.tool_results_message(results))
         raise TurnFailed("The agent took too many steps.")

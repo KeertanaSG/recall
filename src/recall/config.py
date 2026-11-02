@@ -27,6 +27,9 @@ class Settings:
     max_messages_per_user_per_day: int = 30
     max_messages_per_day: int = 300
     prefetch: bool = True
+    llm_provider: str = "claude"
+    embedder: str = "local"
+    storage: str = "sqlite"
     api_requests_per_minute: int = 60
     api_port: int = 8787
     mcp_port: int = 8788
@@ -38,11 +41,11 @@ class Settings:
     @classmethod
     def from_env(cls) -> "Settings":
         load_dotenv()
-        missing = [
-            name
-            for name in ("TELEGRAM_BOT_TOKEN", "ANTHROPIC_API_KEY", "ALLOWED_USER_IDS")
-            if not os.environ.get(name)
-        ]
+        llm_provider = os.environ.get("RECALL_LLM_PROVIDER", "claude")
+        required = ["TELEGRAM_BOT_TOKEN", "ALLOWED_USER_IDS"]
+        if llm_provider == "claude":
+            required.append("ANTHROPIC_API_KEY")
+        missing = [name for name in required if not os.environ.get(name)]
         if missing:
             raise SystemExit(f"Missing required settings: {', '.join(missing)}. See .env.example.")
         return cls(
@@ -60,6 +63,9 @@ class Settings:
                 os.environ.get("RECALL_MAX_MESSAGES_PER_USER_PER_DAY", "30")
             ),
             max_messages_per_day=int(os.environ.get("RECALL_MAX_MESSAGES_PER_DAY", "300")),
+            llm_provider=llm_provider,
+            embedder=os.environ.get("RECALL_EMBEDDER", "local"),
+            storage=os.environ.get("RECALL_STORAGE", "sqlite"),
             prefetch=os.environ.get("RECALL_PREFETCH", "true").lower() == "true",
             api_requests_per_minute=int(os.environ.get("RECALL_API_REQUESTS_PER_MINUTE", "60")),
             api_port=int(os.environ.get("RECALL_API_PORT", "8787")),

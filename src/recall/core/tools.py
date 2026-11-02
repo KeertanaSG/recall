@@ -5,9 +5,9 @@ from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from recall.retrieval import Retriever
-from recall.schema_design import TableDesigner
-from recall.store import COLUMN_TYPES, Store, ToolError
+from recall.core.retrieval import Retriever
+from recall.core.schema_design import TableDesigner
+from recall.storage.base import COLUMN_TYPES, MemoryStore, ToolError
 
 REMINDER_KINDS = ["deadline", "promise", "follow_up", "other"]
 ADD_ONLY_TOOLS = frozenset({"create_table", "add_column", "add_row", "set_reminder"})
@@ -174,7 +174,7 @@ TOOLS: list[dict] = [
 class Tools:
     def __init__(
         self,
-        store: Store,
+        store: MemoryStore,
         source_text: str,
         now: datetime,
         retriever: Retriever | None,

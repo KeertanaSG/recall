@@ -4,8 +4,8 @@ import re
 
 import pytest
 
-from recall.embeddings import EMBEDDING_DIM, EmbeddingError
-from recall.store import Store
+from recall.storage.embeddings import EMBEDDING_DIM, EmbeddingError
+from recall.storage.store import Store
 
 
 class FakeEmbedder:

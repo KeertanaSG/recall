@@ -13,9 +13,9 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 
 from recall.config import Settings
-from recall.embeddings import LocalEmbedder
-from recall.service import LocalStoreProvider
-from recall.store import Store, user_db_path
+from recall.factory import build_stores
+from recall.storage.base import MemoryStore
+from recall.storage.store import user_db_path
 
 TABLES = {
     "movies": ("Films watched", {"title": "text", "rating": "real", "genre": "text", "companions": "text", "watched_on": "date"}),
@@ -78,7 +78,7 @@ def rows(today) -> list[tuple]:
     ]
 
 
-def seed(store: Store, now: datetime) -> int:
+def seed(store: MemoryStore, now: datetime) -> int:
     for name, (description, columns) in TABLES.items():
         store.create_table(
             name,
@@ -125,7 +125,7 @@ def main() -> None:
         raise SystemExit(f"User {user_id} isn't in ALLOWED_USER_IDS.")
 
     now = datetime.now(timezone.utc)
-    stores = LocalStoreProvider(settings, LocalEmbedder(settings.data_dir / "models"))
+    stores = build_stores(settings)
     if user_id in stores.user_ids():
         with stores.open(user_id) as store:
             has_data = bool(store.tables())

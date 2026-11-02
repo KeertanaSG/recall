@@ -5,8 +5,9 @@ import anthropic
 import httpx
 import pytest
 
-from recall.retrieval import MAX_ATTEMPTS, Retriever, fuse
-from recall.store import ToolError
+from recall.llm.claude import ClaudeLLM
+from recall.core.retrieval import MAX_ATTEMPTS, Retriever, fuse
+from recall.storage.store import ToolError
 
 
 def reply(payload, stop_reason="end_turn"):
@@ -59,14 +60,14 @@ def test_fusion_favours_rows_found_by_several_searches():
 
 def test_grading_keeps_only_relevant_rows(notes):
     client = FakeClient(grades=[{"relevant": ["notes#1"]}])
-    result = Retriever(client, "m").search(notes, "lent money")
+    result = Retriever(ClaudeLLM(client), "m").search(notes, "lent money")
     assert [r["row"]["id"] for r in result["results"]] == [1]
     assert result["filtered_for_relevance"] and not result["nothing_relevant"]
 
 
 def test_keywords_find_rows_that_embeddings_miss(notes):
     client = FakeClient(plan={"queries": [], "keywords": ["arjun"]}, grades=[{"relevant": ["notes#1"]}])
-    result = Retriever(client, "m").search(notes, "unrelated words entirely")
+    result = Retriever(ClaudeLLM(client), "m").search(notes, "unrelated words entirely")
     assert result["results"][0]["row"]["body"] == "lent Arjun 2000 for tickets"
 
 
@@ -75,7 +76,7 @@ def test_nothing_relevant_retries_with_a_new_angle_then_says_so(notes):
         plan={"queries": ["cab"], "keywords": []},
         grades=[{"relevant": []}, {"relevant": []}],
     )
-    result = Retriever(client, "m", max_attempts=2).search(notes, "passport number")
+    result = Retriever(ClaudeLLM(client), "m", max_attempts=2).search(notes, "passport number")
     assert result["nothing_relevant"] and result["results"] == []
     assert len(client.prompts) == 4
     assert "Already tried" in client.prompts[2]
@@ -83,19 +84,19 @@ def test_nothing_relevant_retries_with_a_new_angle_then_says_so(notes):
 
 def test_default_gives_up_after_one_pass(notes):
     client = FakeClient(grades=[{"relevant": []}])
-    assert Retriever(client, "m").search(notes, "passport number")["nothing_relevant"]
+    assert Retriever(ClaudeLLM(client), "m").search(notes, "passport number")["nothing_relevant"]
     assert len(client.prompts) == 2 * MAX_ATTEMPTS
 
 
 def test_a_retry_can_succeed(notes):
     client = FakeClient(grades=[{"relevant": []}, {"relevant": ["notes#2"]}])
-    result = Retriever(client, "m", max_attempts=2).search(notes, "cab")
+    result = Retriever(ClaudeLLM(client), "m", max_attempts=2).search(notes, "cab")
     assert [r["row"]["id"] for r in result["results"]] == [2]
 
 
 def test_invented_keys_from_the_grader_are_ignored(notes):
     client = FakeClient(grades=[{"relevant": ["notes#99", "secrets#1"]}, {"relevant": []}])
-    assert Retriever(client, "m").search(notes, "cab")["results"] == []
+    assert Retriever(ClaudeLLM(client), "m").search(notes, "cab")["results"] == []
 
 
 @pytest.mark.parametrize(
@@ -104,26 +105,26 @@ def test_invented_keys_from_the_grader_are_ignored(notes):
 )
 def test_search_survives_a_failed_grade(notes, failure):
     client = FakeClient(grades=[failure])
-    result = Retriever(client, "m").search(notes, "cab")
+    result = Retriever(ClaudeLLM(client), "m").search(notes, "cab")
     assert result["results"] and not result["filtered_for_relevance"]
 
 
 def test_search_survives_a_failed_plan(notes):
     client = FakeClient(plan=anthropic.APIConnectionError(request=httpx.Request("POST", "https://x")))
-    assert Retriever(client, "m").search(notes, "cab")["results"]
+    assert Retriever(ClaudeLLM(client), "m").search(notes, "cab")["results"]
 
 
 def test_search_survives_an_embedding_outage(notes, embedder):
     embedder.failing = True
     client = FakeClient(plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["notes#2"]}])
-    assert Retriever(client, "m").search(notes, "cab")["results"][0]["row"]["id"] == 2
+    assert Retriever(ClaudeLLM(client), "m").search(notes, "cab")["results"][0]["row"]["id"] == 2
 
 
 def test_table_filter_applies_to_both_searches(notes):
     notes.create_table("films", "Films", [{"name": "title", "type": "text"}])
     notes.add_row("films", {"title": "cab movie"})
     client = FakeClient(plan={"queries": [], "keywords": ["cab"]}, grades=[{"relevant": ["films#1"]}])
-    result = Retriever(client, "m").search(notes, "cab", table="films")
+    result = Retriever(ClaudeLLM(client), "m").search(notes, "cab", table="films")
     assert {r["table"] for r in result["results"]} == {"films"}
     assert "notes#" not in client.prompts[1]
 

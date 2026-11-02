@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from recall.config import Settings, parse_allowed_users
-from recall.store import known_user_ids
+from recall.storage.store import known_user_ids
 from recall.usage import Limit, UsageLimiter
 
 NOW = datetime(2026, 11, 1, 12, tzinfo=timezone.utc)

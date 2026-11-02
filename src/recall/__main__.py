@@ -1,7 +1,7 @@
 import logging
 from logging.handlers import RotatingFileHandler
 
-from recall.bot import build_application
+from recall.channels.telegram import build_application
 from recall.config import Settings
 
 

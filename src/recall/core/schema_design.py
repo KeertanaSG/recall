@@ -1,13 +1,10 @@
 """Designs new tables with a stronger model. Tables outlive the message that created them,
 so this rare step gets the extra care, and every other step can use a cheaper model."""
 
-import json
 import logging
 
-import anthropic
-
-from recall.llm import create_message
-from recall.store import COLUMN_TYPES, Store, ToolError
+from recall.llm.base import LLM, LLMError
+from recall.storage.base import COLUMN_TYPES, MemoryStore, ToolError
 
 log = logging.getLogger(__name__)
 
@@ -63,12 +60,12 @@ DESIGN_SCHEMA = {
 
 
 class TableDesigner:
-    def __init__(self, client: anthropic.Anthropic, model: str):
-        self.client = client
+    def __init__(self, llm: LLM, model: str):
+        self.llm = llm
         self.model = model
 
     def create(
-        self, store: Store, subject: str, example: str, confirmed_distinct: bool = False
+        self, store: MemoryStore, subject: str, example: str, confirmed_distinct: bool = False
     ) -> dict:
         design = self._design(store, subject, example)
         store.create_table(
@@ -82,32 +79,14 @@ class TableDesigner:
             ],
         }
 
-    def _design(self, store: Store, subject: str, example: str) -> dict:
+    def _design(self, store: MemoryStore, subject: str, example: str) -> dict:
         existing = [f"{t['name']}: {t['description']}" for t in store.tables()]
         prompt = (
             f"Subject: {subject}\nExample message: {example}\n"
             f"Existing tables, which this must not duplicate: {existing or 'none'}"
         )
         try:
-            response = create_message(
-                self.client,
-                self.model,
-                False,
-                max_tokens=4000,
-                system=DESIGN_SYSTEM,
-                messages=[{"role": "user", "content": prompt}],
-                output_config={
-                    "effort": "low",
-                    "format": {"type": "json_schema", "schema": DESIGN_SCHEMA},
-                },
-            )
-        except anthropic.APIError as exc:
+            return self.llm.ask_json(self.model, DESIGN_SYSTEM, prompt, DESIGN_SCHEMA)
+        except LLMError as exc:
             log.exception("Table design failed")
-            raise ToolError("Couldn't design the table just now. Try once more.") from exc
-        if response.stop_reason != "end_turn":
-            raise ToolError("Couldn't design the table just now. Try once more.")
-        text = "".join(block.text for block in response.content if block.type == "text")
-        try:
-            return json.loads(text)
-        except json.JSONDecodeError as exc:
             raise ToolError("Couldn't design the table just now. Try once more.") from exc

@@ -8,7 +8,7 @@ pending, so the next allowed tick sends them.
 from datetime import datetime, time
 from zoneinfo import ZoneInfo
 
-from recall.store import Prefs
+from recall.storage.base import Prefs
 
 
 def is_quiet(local: datetime, prefs: Prefs) -> bool:

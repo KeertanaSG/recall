@@ -30,11 +30,12 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from history import ABSENT, NEEDLES, build_history  # noqa: E402
 
-from recall.agent import Agent, TurnFailed  # noqa: E402
+from recall.core.agent import Agent, TurnFailed  # noqa: E402
 from recall.config import Settings  # noqa: E402
-from recall.embeddings import LocalEmbedder  # noqa: E402
-from recall.retrieval import MAX_ATTEMPTS, Retriever  # noqa: E402
-from recall.store import Store  # noqa: E402
+from recall.llm.claude import ClaudeLLM  # noqa: E402
+from recall.storage.embeddings import LocalEmbedder  # noqa: E402
+from recall.core.retrieval import MAX_ATTEMPTS, Retriever  # noqa: E402
+from recall.storage.store import Store  # noqa: E402
 
 EVALS = Path(__file__).parent
 RESULTS = EVALS / "results"
@@ -275,14 +276,14 @@ def main():
         )
         configs = []
         if args.agent:
-            agent = Agent(client, args.model, "low", args.fast, prefetch=args.prefetch)
-            agent.retriever = Retriever(client, args.retrieval_model, args.attempts, args.fast)
+            agent = Agent(ClaudeLLM(client, args.fast), args.model, "low", prefetch=args.prefetch)
+            agent.retriever = Retriever(ClaudeLLM(client, args.fast), args.retrieval_model, args.attempts)
             configs.append((f"agent-{args.attempts}-attempt{suffix}", agent_ask(agent)))
         else:
             configs.append((f"vector-top{VECTOR_TOP_K}", vector_ask))
             if not args.vector_only:
                 for attempts in (2, 1):
-                    retriever = Retriever(client, args.retrieval_model, attempts, args.fast)
+                    retriever = Retriever(ClaudeLLM(client, args.fast), args.retrieval_model, attempts)
                     configs.append((f"graph-{attempts}-attempt{suffix}", graph_ask(retriever)))
 
         for name, ask in configs:

@@ -3,8 +3,8 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
-from recall.reminders import is_quiet, select_sendable, start_of_local_day
-from recall.store import Prefs
+from recall.core.reminders import is_quiet, select_sendable, start_of_local_day
+from recall.storage.store import Prefs
 
 IST = ZoneInfo("Asia/Kolkata")
 

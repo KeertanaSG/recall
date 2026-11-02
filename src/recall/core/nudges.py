@@ -11,12 +11,10 @@ import json
 import logging
 from datetime import datetime, timedelta, timezone
 
-import anthropic
-
-from recall.agent import summarize_row
-from recall.llm import ask_json
-from recall.retrieval import fuse, hybrid_search, result_key
-from recall.store import ROW_METADATA, Store, ToolError
+from recall.core.agent import summarize_row
+from recall.core.retrieval import fuse, hybrid_search, result_key
+from recall.llm.base import LLM, LLMError
+from recall.storage.base import ROW_METADATA, MemoryStore, ToolError
 
 log = logging.getLogger(__name__)
 
@@ -86,7 +84,7 @@ def _saved_at(result: dict) -> datetime:
     return datetime.fromisoformat(result["row"]["created_at"])
 
 
-def find_candidates(store: Store, now: datetime) -> list[dict]:
+def find_candidates(store: MemoryStore, now: datetime) -> list[dict]:
     """Rows that look unfinished, gone quiet, and not already followed up. Uses no model."""
     rankings = store.rows_not_marked(POOL)
     try:
@@ -105,7 +103,7 @@ def find_candidates(store: Store, now: datetime) -> list[dict]:
     return fuse([[r for r in ranking if eligible(r)] for ranking in rankings], MAX_CANDIDATES)
 
 
-def later_entries(store: Store, candidate: dict) -> list[str]:
+def later_entries(store: MemoryStore, candidate: dict) -> list[str]:
     """Newer entries on the same thing, which can show it's already resolved."""
     details = " ".join(
         str(value) for name, value in candidate["row"].items() if name not in ROW_METADATA
@@ -119,19 +117,12 @@ def later_entries(store: Store, candidate: dict) -> list[str]:
 
 
 class Nudger:
-    def __init__(
-        self,
-        client: anthropic.Anthropic,
-        model: str,
-        fast: bool = False,
-        max_nudges: int = MAX_NUDGES,
-    ):
-        self.client = client
+    def __init__(self, llm: LLM, model: str, max_nudges: int = MAX_NUDGES):
+        self.llm = llm
         self.model = model
-        self.fast = fast
         self.max_nudges = max_nudges
 
-    def judge(self, store: Store, candidates: list[dict], now: datetime) -> list[dict] | None:
+    def judge(self, store: MemoryStore, candidates: list[dict], now: datetime) -> list[dict] | None:
         """Return the worthwhile candidates, most important first, or None if the model failed."""
         if not candidates:
             return []
@@ -148,15 +139,17 @@ class Nudger:
             f"Today is {now.date().isoformat()}.\n\nEntries:\n"
             + json.dumps(entries, ensure_ascii=False, default=str)
         )
-        verdict = ask_json(self.client, self.model, self.fast, JUDGE_SYSTEM, prompt, JUDGE_SCHEMA)
-        if verdict is None:
+        try:
+            verdict = self.llm.ask_json(self.model, JUDGE_SYSTEM, prompt, JUDGE_SCHEMA)
+        except LLMError:
+            log.exception("The nudge judge failed")
             return None
         # Keys the model made up are dropped, so a nudge always points at a real entry.
         picks = [pick for pick in verdict["nudges"] if pick["key"] in by_key]
         picks.sort(key=lambda pick: pick["importance"], reverse=True)
         return [{**pick, "result": by_key[pick["key"]]} for pick in picks[: self.max_nudges]]
 
-    def scan(self, store: Store, now: datetime | None = None, force: bool = False) -> list[int]:
+    def scan(self, store: MemoryStore, now: datetime | None = None, force: bool = False) -> list[int]:
         """Queue any nudges as due reminders, and return their IDs."""
         now = now or datetime.now(timezone.utc)
         prefs = store.prefs()

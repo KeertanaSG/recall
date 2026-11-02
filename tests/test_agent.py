@@ -6,7 +6,8 @@ import anthropic
 import httpx
 import pytest
 
-from recall.agent import (
+from recall.llm.claude import ClaudeLLM
+from recall.core.agent import (
     Agent,
     Reply,
     Source,
@@ -15,8 +16,8 @@ from recall.agent import (
     resolve_citations,
     summarize_row,
 )
-from recall.store import REMINDERS
-from recall.tools import TOOLS, Tools
+from recall.storage.store import REMINDERS
+from recall.core.tools import TOOLS, Tools
 
 NOW = datetime(2026, 11, 1, 10, 0, tzinfo=timezone.utc)
 
@@ -55,7 +56,7 @@ class ScriptedClient:
 
 def agent_with(*responses):
     client = ScriptedClient(*responses)
-    return Agent(client, "claude-opus-5-5", "low"), client
+    return Agent(ClaudeLLM(client), "claude-opus-5-5", "low"), client
 
 
 def tool_names(call):
@@ -245,7 +246,7 @@ def test_prefetch_puts_likely_rows_in_the_first_message(store, expenses):
     store.add_row(expenses, {"item": "ferry ticket", "amount": 90})
     store.turn_id = None
     client = ScriptedClient(response(text("90 [expenses#1].")))
-    Agent(client, "m", "low", prefetch=True).respond(store, "ferry ticket cost?", NOW)
+    Agent(ClaudeLLM(client), "m", "low", prefetch=True).respond(store, "ferry ticket cost?", NOW)
     first = client.calls[0]["messages"][-1]["content"]
     assert "Likely entries" in first and "expenses#1" in first
 
@@ -253,8 +254,8 @@ def test_prefetch_puts_likely_rows_in_the_first_message(store, expenses):
 def test_prefetch_survives_an_embedding_outage_and_is_off_by_default(store, embedder, expenses):
     embedder.failing = True
     client = ScriptedClient(response(text("Nothing saved.")), response(text("Nothing saved.")))
-    Agent(client, "m", "low", prefetch=True).respond(store, "ferry", NOW)
-    Agent(client, "m", "low").respond(store, "ferry", NOW)
+    Agent(ClaudeLLM(client), "m", "low", prefetch=True).respond(store, "ferry", NOW)
+    Agent(ClaudeLLM(client), "m", "low").respond(store, "ferry", NOW)
     assert "Likely entries" not in client.calls[1]["messages"][-1]["content"]
 
 
@@ -354,7 +355,7 @@ def test_unlinked_reminder_links_to_the_row_just_saved(store, expenses):
 
 
 def test_past_and_muted_reminders_are_refused(store):
-    from recall.store import ToolError
+    from recall.storage.store import ToolError
 
     tools = Tools(store, "x", NOW, None, None)
     with pytest.raises(ToolError, match="past"):

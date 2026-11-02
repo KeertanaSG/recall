@@ -5,11 +5,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
-from recall.api import create_app
+from recall.channels.api import create_app
 from recall.auth import OWNER, READ, WRITE, TokenStore, telegram_identity
 from recall.config import Settings
-from recall.mcp_server import BearerVerifier, create_server
-from recall.service import AccessDenied, LocalStoreProvider, NotFound, RateLimited, RecallService
+from recall.channels.mcp_server import BearerVerifier, create_server
+from recall.service import AccessDenied, NotFound, RateLimited, RecallService
+from recall.storage.store import SqliteStoreProvider
 from recall.usage import UsageLimiter
 
 NOW = datetime(2026, 11, 2, tzinfo=timezone.utc)
@@ -26,7 +27,7 @@ def agent():
 @pytest.fixture
 def service(tmp_path, embedder, agent):
     settings = Settings("t", frozenset({1, 2}), tmp_path, "Asia/Kolkata", api_requests_per_minute=5)
-    stores = LocalStoreProvider(settings, embedder)
+    stores = SqliteStoreProvider(settings, embedder)
     with stores.open(1) as store:
         store.create_table("notes", "Notes", [{"name": "body", "type": "text"}])
         store.add_row("notes", {"body": "secret of user one"})

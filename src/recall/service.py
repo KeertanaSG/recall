@@ -8,18 +8,14 @@ so a caller can't ask for someone else's data. Tokens are also rate limited and 
 import json
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from typing import Protocol
 
-import anthropic
-
-from recall.agent import Agent, Reply, TurnFailed
+from recall.core.agent import Agent, Reply, TurnFailed
+from recall.core.nudges import Nudger
+from recall.core.retrieval import hybrid_search
+from recall.core.tools import Tools
 from recall.auth import OWNER, READ, WRITE, Identity, TokenStore
 from recall.config import Settings
-from recall.embeddings import Embedder, LocalEmbedder
-from recall.nudges import Nudger
-from recall.retrieval import hybrid_search
-from recall.store import Store, ToolError, delete_user_data, known_user_ids, user_db_path
-from recall.tools import Tools
+from recall.storage.base import StoreProvider, ToolError
 from recall.usage import Limit, UsageLimiter
 
 LIMIT_MESSAGES = {
@@ -42,32 +38,6 @@ class NotFound(Exception):
 
 class Unavailable(Exception):
     """A model step failed, and nothing was saved."""
-
-
-class StoreProvider(Protocol):
-    """Where user databases live. Moving storage later only means replacing this."""
-
-    def open(self, user_id: int) -> Store: ...
-
-    def user_ids(self) -> list[int]: ...
-
-    def delete(self, user_id: int) -> None: ...
-
-
-class LocalStoreProvider:
-    def __init__(self, settings: Settings, embedder: Embedder):
-        self.settings = settings
-        self.embedder = embedder
-
-    def open(self, user_id: int) -> Store:
-        path = user_db_path(self.settings.data_dir, user_id)
-        return Store(path, self.embedder, self.settings.default_timezone)
-
-    def user_ids(self) -> list[int]:
-        return known_user_ids(self.settings.data_dir)
-
-    def delete(self, user_id: int) -> None:
-        delete_user_data(self.settings.data_dir, user_id)
 
 
 class RecallService:
@@ -186,41 +156,4 @@ class RecallService:
             return json.loads(tools.run("set_reminder", arguments))
 
 
-def build_agent(settings: Settings) -> Agent:
-    return Agent(
-        anthropic.Anthropic(),
-        settings.model,
-        settings.effort,
-        settings.fast_mode,
-        settings.retrieval_model,
-        settings.design_model,
-        settings.prefetch,
-    )
-
-
-def build_service(settings: Settings) -> RecallService:
-    agent = build_agent(settings)
-    return RecallService(
-        settings,
-        TokenStore(settings.data_dir / "auth.sqlite"),
-        LocalStoreProvider(settings, LocalEmbedder(settings.data_dir / "models")),
-        agent,
-        UsageLimiter(
-            settings.data_dir / "usage.sqlite",
-            settings.max_messages_per_user_per_day,
-            settings.max_messages_per_day,
-        ),
-        Nudger(agent.client, settings.retrieval_model, settings.fast_mode),
-    )
-
-
-__all__ = [
-    "AccessDenied",
-    "NotFound",
-    "RateLimited",
-    "RecallService",
-    "ToolError",
-    "Unavailable",
-    "build_agent",
-    "build_service",
-]
+__all__ = ["AccessDenied", "NotFound", "RateLimited", "RecallService", "ToolError", "Unavailable"]

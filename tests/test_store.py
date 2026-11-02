@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from recall.store import REMINDERS, Store, ToolError, delete_user_data, name_key, user_db_path
+from recall.storage.store import REMINDERS, Store, ToolError, delete_user_data, name_key, user_db_path
 
 NOW = datetime(2026, 11, 1, 12, 0, tzinfo=timezone.utc)
 

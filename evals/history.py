@@ -7,7 +7,7 @@ questions deliberately avoid the words in the needle, as a real vague question w
 import random
 from dataclasses import dataclass
 
-from recall.store import Store
+from recall.storage.store import Store
 
 TABLES = {
     "movies": ("Movies watched", {"title": "text", "rating": "real", "genre": "text", "watched_with": "text", "notes": "text"}),

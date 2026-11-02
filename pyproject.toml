@@ -20,9 +20,9 @@ dependencies = [
 
 [project.scripts]
 recall = "recall.__main__:main"
-recall-api = "recall.api:main"
+recall-api = "recall.channels.api:main"
 recall-demo = "recall.demo:main"
-recall-mcp = "recall.mcp_server:main"
+recall-mcp = "recall.channels.mcp_server:main"
 recall-tokens = "recall.token_cli:main"
 
 [dependency-groups]

@@ -4,9 +4,9 @@ import pytest
 
 from recall.config import Settings
 from recall.demo import back_up, main, seed
-from recall.nudges import MAX_AGE, MIN_AGE, find_candidates
-from recall.retrieval import result_key
-from recall.store import Store, user_db_path
+from recall.core.nudges import MAX_AGE, MIN_AGE, find_candidates
+from recall.core.retrieval import result_key
+from recall.storage.store import Store, user_db_path
 
 NOW = datetime(2026, 11, 2, 9, 0, tzinfo=timezone.utc)
 

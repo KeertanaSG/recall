@@ -16,7 +16,7 @@ import sqlite3
 import time
 import zipfile
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict
 from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -24,20 +24,12 @@ from urllib.parse import quote
 
 import sqlite_vec
 
-from recall.embeddings import EMBEDDING_DIM, Embedder, EmbeddingError
+from recall.config import Settings
+from recall.storage.base import COLUMN_TYPES, REMINDERS, ROW_METADATA, Prefs, ToolError
+from recall.storage.embeddings import EMBEDDING_DIM, Embedder, EmbeddingError
 
 log = logging.getLogger(__name__)
 
-REMINDERS = "_reminders"
-COLUMN_TYPES = {
-    "text": "TEXT",
-    "integer": "INTEGER",
-    "real": "REAL",
-    "boolean": "INTEGER",
-    "date": "TEXT",
-    "datetime": "TEXT",
-}
-ROW_METADATA = ("id", "created_at", "updated_at", "source_text")
 RESERVED_NAMES = {*ROW_METADATA, "rowid", "oid"}
 IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 GENERIC_NAME_TOKENS = {"log", "list", "tracker", "entry", "record", "history", "data", "my"}
@@ -110,21 +102,6 @@ CREATE TABLE IF NOT EXISTS {REMINDERS} (
 CREATE VIRTUAL TABLE IF NOT EXISTS _vectors
     USING vec0(embedding float[{EMBEDDING_DIM}] distance_metric=cosine);
 """
-
-
-class ToolError(Exception):
-    """A problem the agent can read and fix on its next step."""
-
-
-@dataclass
-class Prefs:
-    timezone: str
-    quiet_enabled: bool = True
-    quiet_start: str = "22:00"
-    quiet_end: str = "08:00"
-    paused: bool = False
-    muted_kinds: list[str] = field(default_factory=list)
-    last_nudge_scan: str | None = None
 
 
 def utc_now() -> str:
@@ -928,3 +905,21 @@ def delete_user_data(data_dir: Path, user_id: int) -> None:
     path = user_db_path(data_dir, user_id)
     for suffix in ("", "-wal", "-shm"):
         path.with_name(path.name + suffix).unlink(missing_ok=True)
+
+
+class SqliteStoreProvider:
+    """One SQLite file per user."""
+
+    def __init__(self, settings: Settings, embedder: Embedder):
+        self.settings = settings
+        self.embedder = embedder
+
+    def open(self, user_id: int) -> Store:
+        path = user_db_path(self.settings.data_dir, user_id)
+        return Store(path, self.embedder, self.settings.default_timezone)
+
+    def user_ids(self) -> list[int]:
+        return known_user_ids(self.settings.data_dir)
+
+    def delete(self, user_id: int) -> None:
+        delete_user_data(self.settings.data_dir, user_id)

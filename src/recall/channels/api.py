@@ -12,15 +12,15 @@ from pydantic import BaseModel, Field
 
 from recall.auth import Identity
 from recall.config import Settings
+from recall.factory import build_service
 from recall.service import (
     AccessDenied,
     NotFound,
     RateLimited,
     RecallService,
     Unavailable,
-    build_service,
 )
-from recall.store import ToolError
+from recall.storage.base import ToolError
 
 MAX_TEXT = 4000
 MAX_SQL = 2000

@@ -4,7 +4,7 @@ import anthropic
 import httpx
 import pytest
 
-from recall.llm import FALLBACK_BETA, FAST_BETA, create_message
+from recall.llm.claude import FALLBACK_BETA, FAST_BETA, create_message
 
 
 class FakeClient:

@@ -15,12 +15,11 @@ import logging
 import re
 from typing import TypedDict
 
-import anthropic
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
-from recall.llm import ask_json
-from recall.store import Store, ToolError
+from recall.llm.base import LLM, LLMError
+from recall.storage.base import MemoryStore, ToolError
 
 log = logging.getLogger(__name__)
 
@@ -60,7 +59,7 @@ GRADE_SCHEMA = {
 }
 
 
-def hybrid_search(store: Store, text: str, limit: int, table: str | None = None) -> list[dict]:
+def hybrid_search(store: MemoryStore, text: str, limit: int, table: str | None = None) -> list[dict]:
     """Merge semantic and keyword matches with no model call."""
     rankings = [store.keyword_search([word], limit, table) for word in WORD.findall(text)]
     try:
@@ -70,7 +69,7 @@ def hybrid_search(store: Store, text: str, limit: int, table: str | None = None)
     return fuse(rankings, limit)
 
 
-def find_entries(store: Store, text: str, limit: int) -> list[dict]:
+def find_entries(store: MemoryStore, text: str, limit: int) -> list[dict]:
     """Real matches only, for when the user picks an entry from a list."""
     rankings = [store.keyword_search([word], limit) for word in WORD.findall(text)]
     try:
@@ -110,17 +109,10 @@ def fuse(rankings: list[list[dict]], limit: int = MAX_CANDIDATES) -> list[dict]:
 
 
 class Retriever:
-    def __init__(
-        self,
-        client: anthropic.Anthropic,
-        model: str,
-        max_attempts: int = MAX_ATTEMPTS,
-        fast: bool = False,
-    ):
-        self.client = client
+    def __init__(self, llm: LLM, model: str, max_attempts: int = MAX_ATTEMPTS):
+        self.llm = llm
         self.model = model
         self.max_attempts = max_attempts
-        self.fast = fast
         graph = StateGraph(RetrievalState)
         graph.add_node("plan", self._plan)
         graph.add_node("retrieve", self._retrieve)
@@ -131,7 +123,7 @@ class Retriever:
         graph.add_conditional_edges("grade", self._next_step, {"retry": "plan", "done": END})
         self.graph = graph.compile()
 
-    def search(self, store: Store, text: str, table: str | None = None, limit: int = 8) -> dict:
+    def search(self, store: MemoryStore, text: str, table: str | None = None, limit: int = 8) -> dict:
         state = self.graph.invoke(
             {"question": text, "table": table, "tried": [], "attempts": 0},
             config={"configurable": {"store": store}},
@@ -159,7 +151,7 @@ class Retriever:
         }
 
     def _retrieve(self, state: RetrievalState, config: RunnableConfig) -> RetrievalState:
-        store: Store = config["configurable"]["store"]
+        store: MemoryStore = config["configurable"]["store"]
         table = state["table"]
         rankings = []
         for query in state["queries"]:
@@ -196,4 +188,8 @@ class Retriever:
         return "retry"
 
     def _ask(self, system: str, prompt: str, schema: dict) -> dict | None:
-        return ask_json(self.client, self.model, self.fast, system, prompt, schema)
+        try:
+            return self.llm.ask_json(self.model, system, prompt, schema)
+        except LLMError:
+            log.exception("A retrieval step failed, continuing without it")
+            return None

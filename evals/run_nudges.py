@@ -19,10 +19,11 @@ from dotenv import load_dotenv
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from recall.config import Settings  # noqa: E402
-from recall.embeddings import LocalEmbedder  # noqa: E402
-from recall.nudges import Nudger, find_candidates  # noqa: E402
-from recall.retrieval import result_key  # noqa: E402
-from recall.store import Store  # noqa: E402
+from recall.core.nudges import Nudger, find_candidates  # noqa: E402
+from recall.core.retrieval import result_key  # noqa: E402
+from recall.llm.claude import ClaudeLLM  # noqa: E402
+from recall.storage.embeddings import LocalEmbedder  # noqa: E402
+from recall.storage.store import Store  # noqa: E402
 
 RESULTS = Path(__file__).parent / "results" / "nudges.jsonl"
 NOW = datetime(2026, 11, 2, 6, 30, tzinfo=timezone.utc)
@@ -99,8 +100,8 @@ def main() -> None:
     load_dotenv()
     settings = Settings.from_env()
     embedder = LocalEmbedder(settings.data_dir / "models")
-    client = anthropic.Anthropic()
-    nudger = Nudger(client, settings.retrieval_model, settings.fast_mode, max_nudges=len(ROWS))
+    llm = ClaudeLLM(anthropic.Anthropic())
+    nudger = Nudger(llm, settings.retrieval_model, max_nudges=len(ROWS))
 
     with tempfile.TemporaryDirectory() as folder, Store(
         Path(folder) / "eval.sqlite", embedder, "Asia/Kolkata"

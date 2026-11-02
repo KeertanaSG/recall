@@ -6,7 +6,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from recall.bot import (
+from recall.llm.claude import ClaudeLLM
+from recall.channels.telegram import (
     collect_due,
     deliver_due,
     forget_page,
@@ -16,11 +17,12 @@ from recall.bot import (
     reminder_keyboard,
     split_message,
 )
-from recall.agent import Reply
+from recall.core.agent import Reply
 from recall.config import Settings
-from recall.nudges import Nudger
-from recall.service import LocalStoreProvider, RecallService
-from recall.store import Store, user_db_path
+from recall.core.nudges import Nudger
+from recall.service import RecallService
+from recall.storage.store import SqliteStoreProvider
+from recall.storage.store import Store, user_db_path
 from recall.usage import Limit
 
 NOON_IST = datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc)
@@ -28,7 +30,7 @@ NOON_IST = datetime(2026, 11, 1, 6, 30, tzinfo=timezone.utc)
 
 def make_service(tmp_path: Path, embedder, limit: int = 5) -> RecallService:
     config = Settings("token", frozenset({1}), tmp_path, "Asia/Kolkata", max_reminders_per_day=limit)
-    return RecallService(config, None, LocalStoreProvider(config, embedder), None, None)
+    return RecallService(config, None, SqliteStoreProvider(config, embedder), None, None)
 
 
 def test_collect_due_applies_the_daily_limit_after_sends(tmp_path, embedder):
@@ -109,7 +111,7 @@ def test_nudge_runs_from_scan_to_a_sent_message_with_stop_button(tmp_path, embed
     verdict = json.dumps({"nudges": [{"key": "loans#1", "message": "Arjun owes you.", "importance": 3}]})
     response = SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text=verdict)])
     client = SimpleNamespace(beta=SimpleNamespace(messages=SimpleNamespace(create=lambda **_: response)))
-    service.nudger = Nudger(client, "haiku")
+    service.nudger = Nudger(ClaudeLLM(client), "haiku")
     with service.stores.open(1) as store:
         prefs = store.prefs()
         prefs.quiet_enabled = False
