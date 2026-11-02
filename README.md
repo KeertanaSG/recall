@@ -44,7 +44,7 @@ uv run recall
 ```
 
 When you see `Application started`, open your bot in Telegram and send `/start`. The first search
-downloads a small embedding model to `data/models/`. Logs go to the terminal and `data/logs/bot.log`.
+downloads a small embedding model to `data/models/`. Logs go to the terminal and `data/logs/`.
 
 To try it with sample data, stop the bot and run `uv run recall-demo`, which adds 36 backdated
 entries with no model calls. Then send `/nudge` or `Tell me about Arjun`. Use `--fresh` to back up and
@@ -80,6 +80,7 @@ src/recall/
   service.py  The one path to a user's memory
   factory.py  The one place that chooses implementations
   access.py   API tokens, scopes, rate limits, the audit log and daily limits
+  logs.py     Structured JSON logging
   cli.py      recall-tokens and recall-demo
   config.py   Settings from the environment
 ```
@@ -236,6 +237,26 @@ curl -X POST http://127.0.0.1:8787/v1/search \
 | `/quiet 22:00 08:00`, `/quiet off` | Set quiet hours |
 | `/pause`, `/resume` | Hold or restart proactive messages |
 | `/unmute <kind>` | Turn a reminder type back on |
+
+## Logging
+
+Each process writes JSON events to its own file in `data/logs/`: `bot.jsonl`, `api.jsonl` and
+`mcp.jsonl`. Events share a pseudonymous `user`, a `channel`, and a `turn` ID that ties together
+every model and tool call in one turn.
+
+```json
+{"event": "turn", "user": "9ce5176078de", "channel": "telegram", "turn": "6ebd0f842428",
+ "kind": "chat", "outcome": "ok", "tools": ["add_row"], "saved": 1, "llm_calls": 2,
+ "input_tokens": 3545, "output_tokens": 141, "cache_read_tokens": 8910, "duration_ms": 2231}
+```
+
+Logs hold IDs, counts and timings, never memory text. Exceptions keep their type and stack but not
+their message, because messages can quote saved values.
+
+```sh
+jq -c 'select(.event == "turn") | {duration_ms, tools, input_tokens}' data/logs/bot.jsonl
+jq -c 'select(.level != "info")' data/logs/*.jsonl
+```
 
 ## Security and privacy
 

@@ -28,7 +28,7 @@ The targets are proposals, and the 95% figure should be confirmed after the firs
 
 ## Built today
 
-The core product exists and has 204 passing automated tests. Its first full live Telegram test
+The core product exists and has 211 passing automated tests. Its first full live Telegram test
 passed on 2026-11-02.
 
 | Feature | What it does | Tested with |
@@ -54,6 +54,7 @@ passed on 2026-11-02.
 | Person briefs | Gathers everything about a name across tables into one connected answer | Real Claude on demo data |
 | Demo seed | `recall-demo` adds 36 backdated entries with no model calls | Automated tests, real run |
 | Swappable parts | LLM, embedder, storage and channels sit behind interfaces, chosen in `factory.py` | Automated boundary tests, a fake second provider |
+| Structured logs | JSON events per process with turn IDs, timings and token totals, and no memory text | Real Claude across all three processes, automated tests |
 | Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
 
 Search-first retrieval is on by default, and scored 24/24 and 9/10 with a 2.8 second median. Crisis
