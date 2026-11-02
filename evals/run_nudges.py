@@ -13,7 +13,6 @@ import time
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import anthropic
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
@@ -21,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from recall.config import Settings  # noqa: E402
 from recall.core.nudges import Nudger, find_candidates  # noqa: E402
 from recall.core.retrieval import result_key  # noqa: E402
-from recall.llm.claude import ClaudeLLM  # noqa: E402
+from recall.llm.litellm_provider import LiteLLMProvider  # noqa: E402
 from recall.storage.store import (
     LocalEmbedder,  # noqa: E402
     Store,  # noqa: E402
@@ -105,7 +104,7 @@ def main() -> None:
     load_dotenv()
     settings = Settings.from_env()
     embedder = LocalEmbedder(settings.data_dir / "models")
-    llm = ClaudeLLM(anthropic.Anthropic())
+    llm = LiteLLMProvider()
     nudger = Nudger(llm, settings.retrieval_model, max_nudges=len(ROWS))
 
     with (

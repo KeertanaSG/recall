@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 from pathlib import Path
 
-import anthropic
+import litellm
 from dotenv import load_dotenv
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -33,7 +33,7 @@ from history import ABSENT, NEEDLES, build_history  # noqa: E402
 from recall.config import Settings  # noqa: E402
 from recall.core.agent import Agent, TurnFailed  # noqa: E402
 from recall.core.retrieval import Retriever  # noqa: E402
-from recall.llm.claude import ClaudeLLM  # noqa: E402
+from recall.llm.litellm_provider import LiteLLMProvider  # noqa: E402
 from recall.storage.store import (
     LocalEmbedder,  # noqa: E402
     Store,  # noqa: E402
@@ -50,24 +50,21 @@ TURN_FAILED = "TURN FAILED"
 class TokenCounter:
     """Tracks tokens and model time, split into the main agent loop and the graph's steps."""
 
-    def __init__(self, client: anthropic.Anthropic):
+    def __init__(self):
         self.lock = threading.Lock()
         self._reset()
-        original = client.beta.messages.create
 
-        def counted(**kwargs):
-            step = "graph" if "format" in kwargs["output_config"] else "main"
-            start = time.time()
-            response = original(**kwargs)
-            elapsed = time.time() - start
-            with self.lock:
-                self.input += response.usage.input_tokens
-                self.output += response.usage.output_tokens
-                self.calls[step] += 1
-                self.seconds[step] += elapsed
-            return response
-
-        client.beta.messages.create = counted
+    def complete(self, **kwargs):
+        step = "graph" if "response_format" in kwargs else "main"
+        start = time.time()
+        response = litellm.completion(**kwargs)
+        elapsed = time.time() - start
+        with self.lock:
+            self.input += response.usage.prompt_tokens
+            self.output += response.usage.completion_tokens
+            self.calls[step] += 1
+            self.seconds[step] += elapsed
+        return response
 
     def _reset(self) -> None:
         self.input = 0
@@ -269,8 +266,7 @@ def main():
     load_dotenv()
 
     embedder = LocalEmbedder(EVALS / ".cache" / "models")
-    client = anthropic.Anthropic(max_retries=6)
-    tokens = TokenCounter(client)
+    tokens = TokenCounter()
     with tempfile.TemporaryDirectory() as folder:
         path = Path(folder) / "history.sqlite"
         start = time.time()
@@ -290,7 +286,7 @@ def main():
             ]
         )
         configs = []
-        llm = ClaudeLLM(client)
+        llm = LiteLLMProvider(tokens.complete)
         if args.agent:
             agent = Agent(llm, args.model, "low", prefetch=args.prefetch)
             agent.retriever = Retriever(llm, args.retrieval_model)

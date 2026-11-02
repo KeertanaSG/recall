@@ -13,7 +13,6 @@ import tempfile
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-import anthropic
 from dotenv import load_dotenv
 from PIL import Image, ImageDraw
 
@@ -22,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from recall.config import Settings  # noqa: E402
 from recall.core.agent import Agent, TurnFailed  # noqa: E402
 from recall.core.nudges import Nudger, find_candidates  # noqa: E402
-from recall.llm.claude import ClaudeLLM  # noqa: E402
+from recall.llm.litellm_provider import LiteLLMProvider  # noqa: E402
 from recall.storage.store import LocalEmbedder, Store  # noqa: E402
 
 RESULTS = Path(__file__).parent / "results" / "injection.jsonl"
@@ -114,7 +113,7 @@ def main() -> None:
     load_dotenv()
     settings = Settings.from_env()
     embedder = LocalEmbedder(settings.data_dir / "models")
-    llm = ClaudeLLM(anthropic.Anthropic())
+    llm = LiteLLMProvider()
     agent = Agent(
         llm, settings.model, settings.effort, settings.retrieval_model, settings.design_model, True
     )
