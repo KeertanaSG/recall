@@ -26,7 +26,7 @@ from recall.core.agent import TurnFailed, row_date, short_date, summarize_row
 from recall.core.nudges import select_sendable, start_of_local_day
 from recall.core.retrieval import find_entries
 from recall.factory import build_service
-from recall.logs import get_logger, user_ref
+from recall.logs import get_logger, setup, user_ref
 from recall.prompts import render
 from recall.service import RateLimited, RecallService
 from recall.storage.base import ToolError
@@ -41,7 +41,7 @@ TELEGRAM_LIMIT = 4000
 FORGET_PAGE = 5
 FORGET_MATCHES = 50
 FORGET_NARROW_AT = 20
-WELCOME = render("welcome")
+WELCOME = render("agent.welcome")
 
 COMMANDS = [
     BotCommand("nudge", "Check for unfinished business"),
@@ -523,3 +523,9 @@ def build_application(settings: Settings) -> Application:
     application.job_queue.run_repeating(reminder_tick, interval=TICK_SECONDS, first=5)
     application.job_queue.run_repeating(nudge_tick, interval=NUDGE_TICK_SECONDS, first=60)
     return application
+
+
+def main() -> None:
+    settings = Settings.from_env()
+    setup(settings.data_dir, "bot")
+    build_application(settings).run_polling()

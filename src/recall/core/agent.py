@@ -26,9 +26,9 @@ CITED_ROWS = r"_?[a-z][a-z0-9_]*#\d+(?:\s*,\s*\d+)*"
 CITATION = re.compile(rf"\s*\[{CITED_ROWS}(?:\s*,\s*{CITED_ROWS})*\]")
 CITED = re.compile(r"(_?[a-z][a-z0-9_]*)#(\d+(?:\s*,\s*\d+)*)")
 
-SYSTEM_PROMPT = render("agent_system")
+SYSTEM_PROMPT = render("agent.system")
 
-CAPTURE_NOTE = render("capture_note")
+CAPTURE_NOTE = render("agent.capture_note")
 
 
 class TurnFailed(Exception):
@@ -151,7 +151,7 @@ def message_context(store: MemoryStore, now: datetime) -> str:
         for table in store.tables()
     ]
     return render(
-        "context",
+        "agent.context",
         time=local.strftime("%A %Y-%m-%d %H:%M"),
         zone=tz.key,
         calendar=calendar,
@@ -164,7 +164,7 @@ def prefetched_entries(store: MemoryStore, text: str) -> str:
     entries = {result_key(r): r["row"] for r in hybrid_search(store, text, PREFETCH_LIMIT)}
     if not entries:
         return ""
-    return render("prefetch", entries=json.dumps(entries, ensure_ascii=False, default=str))
+    return render("agent.prefetch", entries=json.dumps(entries, ensure_ascii=False, default=str))
 
 
 class Agent:
@@ -196,7 +196,7 @@ class Agent:
             context = message_context(store, now)
             if self.prefetch:
                 context += prefetched_entries(store, text)
-            content = render("turn", context=context, text=text)
+            content = render("agent.turn", context=context, text=text)
             # Only this turn sees a photo: it's never stored, and the chat history keeps the text.
             messages = [*store.recent_messages(), self.llm.user_message(content, image)]
             final = self._attempt(store, messages, tools)
@@ -221,7 +221,7 @@ class Agent:
         now = now or datetime.now(UTC)
         with bind(turn=new_id()), measured(log, "turn", kind="capture") as stats:
             tools = Tools(store, text, now, None, self.designer, ADD_ONLY_TOOLS)
-            content = render("turn", context=message_context(store, now), text=text)
+            content = render("agent.turn", context=message_context(store, now), text=text)
             self._attempt(store, [self.llm.user_message(content)], tools, CAPTURE_NOTE)
             stats["saved"] = len(tools.saved)
             if tools.failures and not tools.saved:

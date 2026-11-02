@@ -185,7 +185,7 @@ TOOLS: list[dict] = [
 ]
 
 
-DESIGN_SYSTEM = render("table_design_system")
+DESIGN_SYSTEM = render("tables.design_system")
 
 DESIGN_SCHEMA = {
     "type": "object",
@@ -236,7 +236,7 @@ class TableDesigner:
     def _design(self, store: MemoryStore, subject: str, example: str) -> dict:
         existing = [f"{t['name']}: {t['description']}" for t in store.tables()]
         prompt = render(
-            "table_design", subject=subject, example=example, existing=existing or "none"
+            "tables.design", subject=subject, example=example, existing=existing or "none"
         )
         try:
             return self.llm.ask_json(self.model, DESIGN_SYSTEM, prompt, DESIGN_SCHEMA)

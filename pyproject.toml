@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.scripts]
-recall = "recall.__main__:main"
+recall = "recall.channels.telegram:main"
 recall-api = "recall.channels.api:main"
 recall-demo = "recall.cli:demo"
 recall-mcp = "recall.channels.mcp_server:main"
