@@ -72,13 +72,15 @@ touches a database directly.
 
 ```
 src/recall/
-  channels/   Telegram, HTTP API and MCP server: thin layers over the service
-  core/       Product logic: agent, tools, retrieval, table design, nudges, reminder rules
+  channels/   telegram.py, api.py, mcp_server.py: thin layers over the service
+  core/       agent.py, tools.py, retrieval.py, nudges.py: the product logic
   llm/        base.py is the interface, claude.py is the provider
-  storage/    base.py is the interface, store.py is SQLite, embeddings.py is local embeddings
+  storage/    base.py is the interface, store.py is SQLite and local embeddings
   service.py  The one path to a user's memory
   factory.py  The one place that chooses implementations
-  auth.py     API tokens, scopes, rate limits and the audit log
+  access.py   API tokens, scopes, rate limits, the audit log and daily limits
+  cli.py      recall-tokens and recall-demo
+  config.py   Settings from the environment
 ```
 
 `core` depends only on the interfaces, so it never imports Anthropic, Telegram or SQLite.
@@ -91,7 +93,7 @@ second, fake provider with a different message format to prove the seam works.
 | --- | --- | --- |
 | The LLM provider | `LLM` in [`llm/base.py`](src/recall/llm/base.py) | Register it in [`factory.py`](src/recall/factory.py) and set `RECALL_LLM_PROVIDER` |
 | The models | Nothing | Set `RECALL_MODEL`, `RECALL_RETRIEVAL_MODEL` or `RECALL_DESIGN_MODEL` |
-| The embedder | `Embedder` in [`storage/embeddings.py`](src/recall/storage/embeddings.py) | Register it and set `RECALL_EMBEDDER` |
+| The embedder | `Embedder` in [`storage/base.py`](src/recall/storage/base.py) | Register it and set `RECALL_EMBEDDER` |
 | The database | `MemoryStore` and `StoreProvider` in [`storage/base.py`](src/recall/storage/base.py) | Register it and set `RECALL_STORAGE` |
 | The chat app | A new file in `channels/`, calling `RecallService` | Add a start command |
 
