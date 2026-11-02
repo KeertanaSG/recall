@@ -124,6 +124,7 @@ class Prefs:
     quiet_end: str = "08:00"
     paused: bool = False
     muted_kinds: list[str] = field(default_factory=list)
+    last_nudge_scan: str | None = None
 
 
 def utc_now() -> str:
@@ -378,6 +379,20 @@ class Store:
             "SELECT name FROM _columns WHERE table_name = ? AND type = 'boolean'", (table,)
         ).fetchall()
         return frozenset(row["name"] for row in rows)
+
+    def rows_not_marked(self, limit: int) -> list[list[dict]]:
+        """One ranking per yes/no column, oldest first, of rows it isn't yet true for."""
+        rankings = []
+        for table in [row["name"] for row in self.conn.execute("SELECT name FROM _tables").fetchall()]:
+            for column in self.boolean_columns(table):
+                name = quote_identifier(column)
+                rows = self.conn.execute(
+                    f"""SELECT * FROM {quote_identifier(table)}
+                        WHERE {name} IS NULL OR {name} = 0 ORDER BY id LIMIT ?""",
+                    (limit,),
+                ).fetchall()
+                rankings.append([{"table": table, "row": self._public_row(row)} for row in rows])
+        return rankings
 
     def _required_columns(self, table: str) -> list[str]:
         rows = self.conn.execute(
@@ -774,6 +789,13 @@ class Store:
                 FROM {REMINDERS} WHERE status = 'pending' ORDER BY remind_at, id"""
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def linked_rows(self) -> set[tuple[str, int]]:
+        """Rows with a reminder in any state, so they're never nudged about again."""
+        rows = self.conn.execute(
+            f"SELECT linked_table, linked_id FROM {REMINDERS} WHERE linked_id IS NOT NULL"
+        ).fetchall()
+        return {(row["linked_table"], row["linked_id"]) for row in rows}
 
     def due_reminders(self, now: datetime) -> list[dict]:
         rows = self.conn.execute(
