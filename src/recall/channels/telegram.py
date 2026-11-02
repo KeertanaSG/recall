@@ -27,6 +27,7 @@ from recall.core.agent import TurnFailed, row_date, short_date, summarize_row
 from recall.core.nudges import select_sendable, start_of_local_day
 from recall.core.retrieval import find_entries
 from recall.factory import build_service
+from recall.prompts import render
 from recall.service import RateLimited, RecallService
 from recall.storage.base import ToolError
 
@@ -40,32 +41,7 @@ TELEGRAM_LIMIT = 4000
 FORGET_PAGE = 5
 FORGET_MATCHES = 50
 FORGET_NARROW_AT = 20
-WELCOME = """\
-Text me anything and I'll remember it.
-
-Try:
-- Watched Dune 2 with Arjun, 9/10
-- Cab to airport 450
-- Told Priya I'd send the file by Friday
-- How much did I spend on cabs this month?
-- A photo of a receipt
-
-This is an early test project. Your memories are kept separate from other users', but they \
-aren't encrypted on the server, so the person running this bot could read them. Messages also \
-pass through Telegram and Anthropic. Please don't send passwords, bank details or medical records.
-
-Recall isn't a mental health service or for emergencies. If you're struggling, please reach out \
-to someone you trust or a local crisis line.
-
-/nudge checks for anything you've left unfinished
-/undo reverses the last save
-/forget <words> erases one entry
-/export downloads everything
-/delete_all erases everything
-/timezone <Area/City> sets your time zone
-/quiet 22:00 08:00 or /quiet off sets quiet hours
-/pause and /resume control proactive messages
-/unmute <kind> turns a reminder type back on"""
+WELCOME = render("welcome")
 
 COMMANDS = [
     BotCommand("nudge", "Check for unfinished business"),
