@@ -26,6 +26,10 @@ class Settings:
     max_reminders_per_day: int = 5
     max_messages_per_user_per_day: int = 30
     max_messages_per_day: int = 300
+    api_requests_per_minute: int = 60
+    api_port: int = 8787
+    mcp_port: int = 8788
+    mcp_public_url: str = "http://127.0.0.1:8788"
 
     def allows(self, user_id: int) -> bool:
         return self.allowed_user_ids is None or user_id in self.allowed_user_ids
@@ -55,4 +59,8 @@ class Settings:
                 os.environ.get("RECALL_MAX_MESSAGES_PER_USER_PER_DAY", "30")
             ),
             max_messages_per_day=int(os.environ.get("RECALL_MAX_MESSAGES_PER_DAY", "300")),
+            api_requests_per_minute=int(os.environ.get("RECALL_API_REQUESTS_PER_MINUTE", "60")),
+            api_port=int(os.environ.get("RECALL_API_PORT", "8787")),
+            mcp_port=int(os.environ.get("RECALL_MCP_PORT", "8788")),
+            mcp_public_url=os.environ.get("RECALL_MCP_PUBLIC_URL", "http://127.0.0.1:8788"),
         )

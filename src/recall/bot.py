@@ -9,7 +9,6 @@ from datetime import datetime, time, timedelta, timezone
 from functools import wraps
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import anthropic
 from telegram import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.error import Forbidden, TelegramError
@@ -25,6 +24,7 @@ from telegram.ext import (
 from recall.agent import Agent, TurnFailed, summarize_row
 from recall.config import Settings
 from recall.embeddings import LocalEmbedder
+from recall.service import build_agent
 from recall.reminders import select_sendable, start_of_local_day
 from recall.store import Store, ToolError, delete_user_data, known_user_ids, user_db_path
 from recall.usage import Limit, UsageLimiter
@@ -389,17 +389,6 @@ async def reminder_tick(context: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def on_start(application: Application) -> None:
     await application.bot.set_my_commands(COMMANDS)
-
-
-def build_agent(settings: Settings) -> Agent:
-    return Agent(
-        anthropic.Anthropic(),
-        settings.model,
-        settings.effort,
-        settings.fast_mode,
-        settings.retrieval_model,
-        settings.design_model,
-    )
 
 
 def build_application(settings: Settings) -> Application:
