@@ -4,9 +4,9 @@ Last updated: 2026-11-02
 
 ## Summary
 
-Recall's next milestone is a portfolio version in about 6 weeks of focused work: a solid core, three
-demo features, trained models, and proven results. It is a Telegram memory that saves anything you text it, answers
-with sources, and speaks up before you forget.
+Recall is a Telegram memory that saves anything you text it, answers with sources, and speaks up
+before you forget. The core product and three demo features are built and run locally. This doc
+records what exists, how it was tested, and what would come next.
 
 Every decision is judged on four goals: accuracy, speed, cost and scale. When they conflict,
 accuracy wins, because one confident wrong answer breaks trust. Fixes stay general, with no rules
@@ -14,13 +14,13 @@ written for one subject or example.
 
 ## Goals
 
-Recall meets its cost goal and most of its speed goal on a synthetic benchmark. Saves that create a
-new table can run over 10 seconds, and real use and scale are not yet proven.
+Recall meets its cost and speed goals on a synthetic benchmark. Saves that create a new table can
+run over 10 seconds, and real use and scale are not yet proven.
 
 | Goal | Target | Today | How we get there |
 | --- | --- | --- | --- |
-| Accuracy | At least 95% on realistic evals, by subject | 47/48 answerable, and 18/20 scored on nothing-saved questions, where both misses were correct replies, on synthetic data | Subject-by-subject evals, graded retrieval, citations read from the database |
-| Speed | Saves under 10 seconds, answers under 5 seconds | 4.7 to 4.8 second median answer; saves 1.9 to 5.2 seconds, up to 12.6 with a new table | Search-first retrieval, which measured 2.3 to 3.2 seconds |
+| Accuracy | At least 95% on realistic evals, by subject | 24/24 answerable and 9/10 nothing-saved with search-first, on synthetic data | Subject-by-subject evals, graded retrieval, citations read from the database |
+| Speed | Saves under 10 seconds, answers under 5 seconds | 2.8 second median answer; saves 1.9 to 5.2 seconds, up to about 20 with a new table | Search-first retrieval, which cut the median from about 4.8 seconds |
 | Cost | Under 0.1 cents per message | About 0.06 cents per question | Haiku for most steps, Opus only for table design, local embeddings |
 | Scale | 100 users on one server, with a path to 1,000 | Estimated $16 a month in model costs at 100 users, untested | One file per user, then the Phase 5 fixes |
 
@@ -28,7 +28,7 @@ The targets are proposals, and the 95% figure should be confirmed after the firs
 
 ## Built today
 
-The core product exists and has 162 passing automated tests. Its first full live Telegram test
+The core product exists and has 191 passing automated tests. Its first full live Telegram test
 passed on 2026-11-02.
 
 | Feature | What it does | Tested with |
@@ -48,23 +48,26 @@ passed on 2026-11-02.
 | One service layer | The bot, API and MCP server all reach memory through `RecallService` | Automated tests |
 | API tokens | Hashed tokens with read and write scopes, expiry, revocation and an audit log | Automated tests, local end-to-end run |
 | HTTP API | Search, read-only SQL, entries, reminders and saving, on localhost | Automated tests, local end-to-end run |
-| MCP server | Seven tools over stdio or HTTP, with no delete tool | Automated tests, local end-to-end run |
+| MCP server | Eight tools over stdio or HTTP, with no delete tool | Automated tests, local end-to-end run |
 | Smart nudges | Texts first about unfinished business, using a free detector, then a Haiku judge, then the reminder rules | Real Claude, labelled eval, automated tests |
 | Photo capture | Turns a photo into rows, with each receipt item saved separately. The photo is never stored | Real Claude with a generated receipt, automated tests |
+| Person briefs | Gathers everything about a name across tables into one connected answer | Real Claude on demo data |
+| Demo seed | `recall-demo` adds 36 backdated entries with no model calls | Automated tests, real run |
 | Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
 
-Search-first retrieval also exists, but stays off until irrelevant sources on nothing-found replies
-are fixed.
+Search-first retrieval is on by default, and scored 24/24 and 9/10 with a 2.8 second median. Crisis
+replies point to trusted people and local services, and never include a phone number the model
+can't check.
 
 ## Demo features
 
 Three features make the demo, because each shows something a chat assistant with memory doesn't do by
-default. Smart nudges and photo capture are built. Efforts are rough estimates.
+default. Smart nudges, photo capture and person briefs are built. Efforts are rough estimates.
 
 | Feature | Demo moment | Shows | Effort |
 | --- | --- | --- | --- |
 | Smart nudges | Recall messages first: "Arjun still owes you ₹2000 from last month" | Proactive | 2 to 3 days |
-| Person brief | "Tell me about Arjun" connects a loan, a movie and a promise, with sources | Connected and inspectable | 2 days |
+| Person brief | "Tell me about Arjun" connects a loan, a movie and a fact, with sources | Connected and inspectable | 2 days |
 | Photo capture | Send a receipt, and the items and total become real rows | Effortless capture | 1 to 2 days |
 
 Together they form the one-minute demo: send a receipt, ask about a person, then watch Recall
@@ -72,9 +75,8 @@ speak up on its own.
 
 ## Roadmap
 
-The portfolio version is Phases 0, 1 and 3, about six weeks of work. Each phase ends with a gate
-that must pass before the next starts, and Phases 4 and 5 only happen if real people keep using
-Recall.
+Phases 0 and 1 are largely done. Each phase ends with a gate that must pass before the next starts,
+and Phases 4 and 5 only happen if real people keep using Recall.
 
 ```mermaid
 flowchart LR
@@ -103,14 +105,14 @@ estimates.
 | Phase | Item | Goal served | How it stays general | Effort |
 | --- | --- | --- | --- | --- |
 | 0 | Live Telegram test (done 2026-11-02) | Accuracy | Tests every flow in real chats | 1 day |
-| 0 | Search-first on by default | Speed, cost | Runs free local search before any model call | 1 day |
+| 0 | Search-first on by default (done) | Speed, cost | Runs free local search before any model call | 1 day |
 | 0 | Bot command and button tests | Accuracy | Covers all handlers | 1 day |
 | 0 | Safe failure replies | Accuracy | Every failed turn gets a useful reply | Half a day |
-| 0 | `/forget` at scale | Accuracy | Uses hybrid search, drops weak matches, shows dates, and pages through results in any table | 1 day |
-| 0 | Short source summaries | Speed | When "From your notes" gets too long, any answer shows a summary instead of the full list | Half a day |
+| 0 | `/forget` at scale (done) | Accuracy | Uses hybrid search, drops weak matches, shows dates, and pages through results in any table | 1 day |
+| 0 | Short source summaries (done) | Speed | When "From your notes" gets too long, any answer shows a summary instead of the full list | Half a day |
 | 0 | Deploy to a small server | Scale | Reminders stop depending on a laptop | Half a day |
 | 1 | Smart nudges (done) | Accuracy | Finds open items that have gone quiet in any table | 2 to 3 days |
-| 1 | Person brief | Accuracy | Gathers a name across all tables | 2 days |
+| 1 | Person brief (done) | Accuracy | Gathers a name across all tables | 2 days |
 | 1 | Photo capture (done) | Speed | Images go through the same saving tools as text | 1 to 2 days |
 | 2 | Natural commands | Speed | Agent tools for undo, settings and forget, with deletes needing a tap | 2 days |
 | 2 | Bulk forget | Accuracy | "Forget all cabs from March" shows a count and a preview, then needs a tap | 1 day |
@@ -188,6 +190,4 @@ details and medical records.
 
 ## Open decisions
 
-- [ ] Crisis phone numbers: keep a checked list per country in settings, rather than letting the model produce them?
 - [ ] Are the goal targets in this doc right, especially 95% accuracy?
-- [ ] Should Phase 2 happen before the portfolio goes public, or after?

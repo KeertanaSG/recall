@@ -171,7 +171,7 @@ def test_saves_show_no_source_list(store, expenses):
 def test_row_summary_reads_naturally():
     row = {"id": 1, "title": "Dune", "rating": 8.0, "is_rewatch": 1, "watched_with": "Arjun",
            "notes": None, "source_text": "x", "created_at": "2026-11-01T10:00:00+00:00", "updated_at": "x"}
-    assert summarize_row(row, frozenset({"is_rewatch"})) == "Dune · rating 8 · watched with Arjun · saved Nov 1"
+    assert summarize_row(row, frozenset({"is_rewatch"})) == "Dune · rating 8 · Arjun · saved Nov 1"
 
 
 def test_invented_citation_warns(store, expenses):
@@ -195,8 +195,50 @@ def test_citing_a_reminder_works(store):
 
 
 def test_many_sources_are_capped():
-    sources = [Source("t", i, "x") for i in range(8)]
-    assert "+3 more" in Reply("Total", sources).render()
+    sources = [Source("meals", i, "x", f"2026-10-0{i + 1}") for i in range(4)]
+    sources.append(Source("my_loans", 9, "y", "2026-10-20"))
+    assert Reply("Total", sources).render() == (
+        "Total\n\nFrom your notes\nmeals: 4 entries, Oct 1 to Oct 4\nmy loans: 1 entry, Oct 20"
+    )
+
+
+def test_sources_from_different_tables_stay_listed_when_grouping_saves_nothing():
+    sources = [Source(f"t{i}", i, f"row {i}", "2026-10-01") for i in range(4)]
+    assert "row 3" in Reply("Total", sources).render()
+
+
+def test_one_citation_can_span_tables(store):
+    store.create_table("loans", "Loans", [{"name": "person", "type": "text"}])
+    store.create_table("notes", "Notes", [{"name": "body", "type": "text"}])
+    store.add_row("loans", {"person": "Priya"})
+    store.add_row("notes", {"body": "Priya paid"})
+    clean, sources = resolve_citations("Priya paid you back [loans#1, notes#1].", store)
+    assert clean == "Priya paid you back."
+    assert [(s.table, s.id) for s in sources] == [("loans", 1), ("notes", 1)]
+
+
+def test_about_gives_the_tables_purpose_and_the_users_words(store):
+    store.create_table("loans", "Money lent to people", [{"name": "person", "type": "text"}])
+    store.add_row("loans", {"person": "Arjun"}, "Lent Arjun 2000")
+    result = store.mentions("arjun")[0]
+    assert result["about"] == "Money lent to people" and result["said"] == "Lent Arjun 2000"
+    assert store.mentions("arj") == []
+
+
+def test_three_sources_are_listed_in_full():
+    sources = [Source("t", i, f"row {i}") for i in range(3)]
+    assert Reply("Total", sources).render() == "Total\n\nFrom your notes\nrow 0\nrow 1\nrow 2"
+
+
+def test_summary_stays_short_and_keeps_what_says_the_most():
+    row = {
+        "id": 1, "item": "Masala Dosa", "currency": "INR", "category": "food", "amount": 120.0,
+        "spent_on": "2026-10-28", "merchant": "Cafe Malabar", "created_at": "2026-11-02T08:38:21+00:00",
+    }
+    assert summarize_row(row) == "Masala Dosa · amount 120 · INR · Oct 28"
+    assert summarize_row({**row, "item": "x" * 200}).endswith("…")
+    assert len(summarize_row({**row, "item": "x" * 200})) == 80
+    assert summarize_row(row, with_date=False) == "Masala Dosa · amount 120 · INR"
 
 
 def test_prefetch_puts_likely_rows_in_the_first_message(store, expenses):

@@ -6,7 +6,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from recall.bot import collect_due, deliver_due, handle_nudge, handle_photo, reminder_keyboard, split_message
+from recall.bot import (
+    collect_due,
+    deliver_due,
+    forget_page,
+    handle_button,
+    handle_nudge,
+    handle_photo,
+    reminder_keyboard,
+    split_message,
+)
 from recall.agent import Reply
 from recall.config import Settings
 from recall.nudges import Nudger
@@ -62,7 +71,8 @@ def fake_chat(service, **message):
     )
     update = SimpleNamespace(effective_user=SimpleNamespace(id=1), message=message)
     data = {"settings": service.settings, "service": service, "locks": defaultdict(asyncio.Lock)}
-    return update, SimpleNamespace(bot_data=data, bot=SimpleNamespace(send_message=AsyncMock()))
+    bot = SimpleNamespace(send_message=AsyncMock())
+    return update, SimpleNamespace(bot_data=data, bot=bot, user_data={}, args=[])
 
 
 def test_photo_goes_through_the_service_with_its_caption(tmp_path, embedder):
@@ -78,11 +88,15 @@ def test_photo_goes_through_the_service_with_its_caption(tmp_path, embedder):
     file = SimpleNamespace(download_as_bytearray=AsyncMock(return_value=bytearray(b"jpeg")))
     small = SimpleNamespace(get_file=AsyncMock())
     large = SimpleNamespace(get_file=AsyncMock(return_value=file))
+    status = SimpleNamespace(delete=AsyncMock())
     update, context = fake_chat(service, photo=[small, large], caption="lunch")
+    update.message.reply_text.return_value = status
     asyncio.run(handle_photo(update, context))
     assert seen == {"text": "[photo] lunch", "image": b"jpeg"}
     small.get_file.assert_not_called()
-    update.message.reply_text.assert_awaited_once_with("Saved.")
+    update.message.reply_text.assert_any_await("Reading your photo…")
+    update.message.reply_text.assert_awaited_with("Saved.")
+    status.delete.assert_awaited_once()
 
 
 def test_nudge_runs_from_scan_to_a_sent_message_with_stop_button(tmp_path, embedder):
@@ -107,6 +121,42 @@ def test_nudge_runs_from_scan_to_a_sent_message_with_stop_button(tmp_path, embed
     assert user_id == 1 and text.startswith("Arjun owes you.\n\nFrom your notes\nArjun")
     assert kwargs["reply_markup"].inline_keyboard[1][0].text == "Stop nudge reminders"
     assert asyncio.run(deliver_due(context, 1, datetime.now(timezone.utc))) == 0
+
+
+def seeded_notes(service, count):
+    with service.stores.open(1) as store:
+        store.create_table("notes", "Notes", [{"name": "body", "type": "text"}])
+        return [("notes", store.add_row("notes", {"body": f"cab ride {i}"})) for i in range(count)]
+
+
+def labels(keyboard):
+    return [button.text for row in keyboard.inline_keyboard for button in row]
+
+
+def test_forget_pages_through_every_match(tmp_path, embedder):
+    service = make_service(tmp_path, embedder)
+    _, context = fake_chat(service)
+    context.user_data["forget"] = seeded_notes(service, 12)
+    text, first = forget_page(context, 1, 0)
+    assert text.startswith("12 matches.") and "narrows" not in text
+    assert labels(first)[-2:] == ["Next", "Cancel"] and len(labels(first)) == 7
+    _, last = forget_page(context, 1, 2)
+    assert len(labels(last)) == 4 and "Back" in labels(last) and "Next" not in labels(last)
+
+
+def test_forget_suggests_narrowing_a_long_list(tmp_path, embedder):
+    service = make_service(tmp_path, embedder)
+    _, context = fake_chat(service)
+    context.user_data["forget"] = seeded_notes(service, 25)
+    assert "narrows these down" in forget_page(context, 1, 0)[0]
+
+
+def test_forget_paging_survives_a_restart(tmp_path, embedder):
+    update, context = fake_chat(make_service(tmp_path, embedder))
+    query = SimpleNamespace(data="fpage:1", answer=AsyncMock(), edit_message_text=AsyncMock())
+    update.callback_query = query
+    asyncio.run(handle_button(update, context))
+    assert "expired" in query.edit_message_text.await_args.args[0]
 
 
 def test_keyboard_only_offers_stop_on_proactive_reminders():

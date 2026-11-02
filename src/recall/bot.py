@@ -21,10 +21,11 @@ from telegram.ext import (
     filters,
 )
 
-from recall.agent import TurnFailed, summarize_row
+from recall.agent import TurnFailed, row_date, short_date, summarize_row
 from recall.auth import OWNER, telegram_identity
 from recall.config import Settings
 from recall.reminders import select_sendable, start_of_local_day
+from recall.retrieval import find_entries
 from recall.service import RateLimited, RecallService, build_service
 from recall.store import ToolError
 
@@ -35,6 +36,9 @@ NUDGE_TICK_SECONDS = 3600
 TELEGRAM_TIMEOUT_SECONDS = 20
 TYPING_SECONDS = 4
 TELEGRAM_LIMIT = 4000
+FORGET_PAGE = 5
+FORGET_MATCHES = 50
+FORGET_NARROW_AT = 20
 WELCOME = """\
 Text me anything and I'll remember it.
 
@@ -132,7 +136,11 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         log.exception("Couldn't download a photo")
         await update.message.reply_text("I couldn't open that photo. Please send it again.")
         return
-    await run_turn(update, context, f"[photo] {update.message.caption or ''}".strip(), image)
+    status = await update.message.reply_text("Reading your photo…")
+    try:
+        await run_turn(update, context, f"[photo] {update.message.caption or ''}".strip(), image)
+    finally:
+        await status.delete()
 
 
 async def run_turn(
@@ -187,7 +195,7 @@ async def handle_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     def find():
         with user_store(context, update.effective_user.id) as store:
-            return store.search(words, limit=5)
+            return find_entries(store, words, FORGET_MATCHES)
 
     try:
         matches = await asyncio.to_thread(find)
@@ -198,18 +206,38 @@ async def handle_forget(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await update.message.reply_text("I couldn't find anything like that.")
         return
 
+    context.user_data["forget"] = [(match["table"], match["row"]["id"]) for match in matches]
+    text, keyboard = forget_page(context, update.effective_user.id, 0)
+    await update.message.reply_text(text, reply_markup=keyboard)
+
+
+def forget_page(
+    context: ContextTypes.DEFAULT_TYPE, user_id: int, page: int
+) -> tuple[str, InlineKeyboardMarkup]:
+    matches = context.user_data["forget"]
+    start = page * FORGET_PAGE
     buttons = []
-    with user_store(context, update.effective_user.id) as store:
-        for match in matches:
-            row = store.get_row(match["table"], match["row"]["id"])
-            label = f"{match['table'].lstrip('_')}: {summarize_row(row)}"[:60]
-            data = f"forget:{match['table']}:{row['id']}"
-            buttons.append([InlineKeyboardButton(label, callback_data=data)])
+    with user_store(context, user_id) as store:
+        for table, row_id in matches[start : start + FORGET_PAGE]:
+            row = store.get_row(table, row_id)
+            if row is None:
+                continue
+            details = summarize_row(row, store.boolean_columns(table), with_date=False)
+            label = f"{short_date(row_date(row))} · {details}"[:60]
+            buttons.append([InlineKeyboardButton(label, callback_data=f"forget:{table}:{row_id}")])
+    pages = []
+    if page > 0:
+        pages.append(InlineKeyboardButton("Back", callback_data=f"fpage:{page - 1}"))
+    if start + FORGET_PAGE < len(matches):
+        pages.append(InlineKeyboardButton("Next", callback_data=f"fpage:{page + 1}"))
+    if pages:
+        buttons.append(pages)
     buttons.append([InlineKeyboardButton("Cancel", callback_data="cancel")])
-    await update.message.reply_text(
-        "Which one should I erase for good? This also removes its history and can't be undone.",
-        reply_markup=InlineKeyboardMarkup(buttons),
-    )
+
+    count = "1 match" if len(matches) == 1 else f"{len(matches)} matches"
+    hint = " Adding a word or date narrows these down." if len(matches) > FORGET_NARROW_AT else ""
+    text = f"{count}.{hint} Which one should I erase for good? This also removes its history and can't be undone."
+    return text, InlineKeyboardMarkup(buttons)
 
 
 @allowed_only
@@ -329,6 +357,12 @@ async def handle_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
             with user_store(context, user_id) as store:
                 forgotten = store.forget(table, row_id)
         await query.edit_message_text("Erased." if forgotten else "That entry is already gone.")
+    elif action == "fpage":
+        if "forget" not in context.user_data:
+            await query.edit_message_text("That list has expired. Please search again with /forget.")
+            return
+        text, keyboard = forget_page(context, user_id, int(args[0]))
+        await query.edit_message_text(text, reply_markup=keyboard)
     elif action == "rem":
         await _handle_reminder_button(query, context, user_id, args)
 

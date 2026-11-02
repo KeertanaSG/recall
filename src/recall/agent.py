@@ -19,11 +19,16 @@ from recall.tools import ADD_ONLY_TOOLS, Tools
 log = logging.getLogger(__name__)
 
 MAX_STEPS = 12
-MAX_SOURCES_SHOWN = 5
+MAX_SOURCES_LISTED = 3
+MAX_SOURCE_DETAILS = 2
+MAX_SOURCE_LENGTH = 80
 PREFETCH_LIMIT = 15
 PHOTO_TYPE = "image/jpeg"  # Telegram converts every photo to JPEG.
 REMINDER_INTERNALS = {"kind", "explicit", "status", "sent_at", "linked_table", "linked_id"}
-CITATION = re.compile(r"\s*\[(_?[a-z][a-z0-9_]*)#(\d+(?:\s*,\s*\d+)*)\]")
+DATE = re.compile(r"^\d{4}-\d{2}-\d{2}")
+CITED_ROWS = r"_?[a-z][a-z0-9_]*#\d+(?:\s*,\s*\d+)*"
+CITATION = re.compile(rf"\s*\[{CITED_ROWS}(?:\s*,\s*{CITED_ROWS})*\]")
+CITED = re.compile(r"(_?[a-z][a-z0-9_]*)#(\d+(?:\s*,\s*\d+)*)")
 
 SYSTEM_PROMPT = """\
 You are Recall, a personal memory that lives in a Telegram chat. The user texts you things \
@@ -65,7 +70,8 @@ sad". If something fits, gently bring it up in their own terms, always with its 
 rough. You said knitting helps when you're anxious [patterns#1]." If nothing fits, reply with a kind line and don't \
 suggest things of your own. Don't save a passing mood unless they ask, and don't lecture. If they \
 sound in danger or talk about hurting themselves, respond with care, and encourage them to reach \
-out to someone they trust or a local crisis line right away.
+out to someone they trust, or to local emergency services or a crisis line, right away. Never give \
+a phone number or name a specific service, because you can't check that it's right where they are.
 
 Columns: each detail belongs in its own column. If a table has no column for a detail, such as \
 who it was with or where it happened, use add_column rather than a notes column. It stays \
@@ -79,10 +85,16 @@ something, whatever the subject, and answer only from what comes back. When tota
 filtering, match what the user means rather than their exact words, so include everything that \
 plainly belongs. \
 Mark every fact you state with its source, written [table#id], or [table#1,2,3] for several \
-rows. For example: "You rated Dune 2 a 9 [movies#12]." You may use general knowledge to \
+rows. Cite only rows that state what you're saying. When you say nothing is saved, cite nothing. For example: "You rated Dune 2 a 9 [movies#12]." You may use general knowledge to \
 connect a question to saved entries, such as knowing that Dune 2 is sci-fi even if no genre \
 is saved. Never use it to fill in the user's own life: what they did, said, spent or felt must \
 come from a saved row. If nothing relevant is found, say that you have nothing saved about it.
+
+People and things: when the user asks about a person, place or thing as a whole, such as "tell me \
+about Arjun", use about with the name. Reply with a short connected picture: anything still open \
+first, like money owed or promises, then what else you know. Each entry comes with its table's \
+purpose and the user's own words, so read those to get right who owes whom. A later entry can \
+settle an earlier one, so check before calling something open.
 
 Correction: a fact changed, such as "I moved to Pune" or "actually it was 8/10". Find the \
 row and use update_row, so the old value stays in history. Check every column of the row \
@@ -119,6 +131,8 @@ tables, columns, rows, categories, ids, fields or history. Say dates the way peo
 don't add closing offers.
 - Lead with the fact itself, with no acknowledgement word or status label before it. Read your \
 recent replies in the chat and word each new one differently, including how it opens.
+- Repeat people's names instead of using he, she, him or her, because you don't know how they \
+identify.
 - Use only plain, ordinary phrasing that a native speaker would actually text. Don't invent \
 expressions, and don't turn verbs into nouns.
 
@@ -145,6 +159,7 @@ class Source:
     table: str
     id: int
     summary: str
+    on: str = ""
 
 
 @dataclass
@@ -155,24 +170,65 @@ class Reply:
     def render(self) -> str:
         if not self.sources:
             return self.text
-        lines = [s.summary for s in self.sources[:MAX_SOURCES_SHOWN]]
-        hidden = len(self.sources) - MAX_SOURCES_SHOWN
-        if hidden > 0:
-            lines.append(f"+{hidden} more")
+        lines = summarize_sources(self.sources)
+        if len(self.sources) <= MAX_SOURCES_LISTED or len(lines) == len(self.sources):
+            lines = [source.summary for source in self.sources]  # Grouping wouldn't shorten it.
         return f"{self.text}\n\nFrom your notes\n" + "\n".join(lines)
 
 
-def summarize_row(row: dict, hidden: frozenset[str] = frozenset()) -> str:
-    """Show a saved row as readable text: the main value first, then labelled details."""
-    parts: list[str] = []
+def short_date(value: str) -> str:
+    return datetime.fromisoformat(value[:10]).strftime("%b %-d")
+
+
+def row_date(row: dict) -> str:
+    """When the entry happened if it says, otherwise when it was saved."""
     for name, value in row.items():
-        if value is None or name in ROW_METADATA or name in REMINDER_INTERNALS or name in hidden:
-            continue
-        if isinstance(value, float) and value.is_integer():
-            value = int(value)
-        parts.append(f"{name.replace('_', ' ')} {value}" if parts else str(value))
-    saved = datetime.fromisoformat(row["created_at"]).strftime("%b %-d")
-    return " · ".join(parts + [f"saved {saved}"])
+        if name not in ROW_METADATA and isinstance(value, str) and DATE.match(value):
+            return value[:10]
+    return row["created_at"][:10]
+
+
+def summarize_row(row: dict, hidden: frozenset[str] = frozenset(), with_date: bool = True) -> str:
+    """Show a saved row in one short line: the main value, then the details that say the most."""
+    fields = [
+        (name, value)
+        for name, value in row.items()
+        if value is not None
+        and name not in ROW_METADATA
+        and name not in REMINDER_INTERNALS
+        and name not in hidden
+    ]
+    main = [str(fields[0][1])] if fields else []
+    numbers, words = [], []
+    for name, value in fields[1:]:
+        if isinstance(value, (int, float)):
+            value = int(value) if float(value).is_integer() else value
+            numbers.append(f"{name.replace('_', ' ')} {value}")
+        elif not DATE.match(str(value)):
+            words.append(str(value))
+    parts = main + (numbers + words)[:MAX_SOURCE_DETAILS]
+    if with_date:
+        dated = any(name != "created_at" and DATE.match(str(value)) for name, value in fields)
+        parts.append(f"{'' if dated else 'saved '}{short_date(row_date(row))}")
+    line = " · ".join(parts)
+    return line if len(line) <= MAX_SOURCE_LENGTH else line[: MAX_SOURCE_LENGTH - 1] + "…"
+
+
+def summarize_sources(sources: list[Source]) -> list[str]:
+    """A long list says nothing at a glance, so group it by subject with its date range."""
+    groups: dict[str, list[Source]] = {}
+    for source in sources:
+        groups.setdefault(source.table, []).append(source)
+    lines = []
+    for table, group in sorted(groups.items(), key=lambda item: -len(item[1])):
+        dates = sorted(source.on for source in group if source.on)
+        span = short_date(dates[0]) if dates else ""
+        if dates and dates[0] != dates[-1]:
+            span += f" to {short_date(dates[-1])}"
+        entries = "1 entry" if len(group) == 1 else f"{len(group)} entries"
+        name = table.lstrip("_").replace("_", " ")
+        lines.append(f"{name}: {entries}" + (f", {span}" if span else ""))
+    return lines
 
 
 def resolve_citations(text: str, store: Store) -> tuple[str, list[Source]]:
@@ -180,7 +236,7 @@ def resolve_citations(text: str, store: Store) -> tuple[str, list[Source]]:
     sources: list[Source] = []
     missing = False
     seen: set[tuple[str, int]] = set()
-    for match in CITATION.finditer(text):
+    for match in (cited for citation in CITATION.finditer(text) for cited in CITED.finditer(citation[0])):
         table = match.group(1)
         for row_id in (int(part) for part in match.group(2).split(",")):
             if (table, row_id) in seen:
@@ -190,7 +246,8 @@ def resolve_citations(text: str, store: Store) -> tuple[str, list[Source]]:
             if row is None:
                 missing = True
             else:
-                sources.append(Source(table, row_id, summarize_row(row, store.boolean_columns(table))))
+                summary = summarize_row(row, store.boolean_columns(table))
+                sources.append(Source(table, row_id, summary, row_date(row)))
     clean = CITATION.sub("", text).strip()
     if missing:
         clean += "\n\nWarning: part of this answer cites an entry I can't find, so don't rely on it."

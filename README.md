@@ -44,7 +44,11 @@ uv run recall
 ```
 
 When you see `Application started`, open your bot in Telegram and send `/start`. The first search
-downloads a small embedding model to `data/models/`.
+downloads a small embedding model to `data/models/`. Logs go to the terminal and `data/logs/bot.log`.
+
+To try it with sample data, stop the bot and run `uv run recall-demo`, which adds 36 backdated
+entries with no model calls. Then send `/nudge` or `Tell me about Arjun`. Use `--fresh` to back up and
+replace existing memory.
 
 Run the tests with `uv run pytest`. They need no network or API keys.
 
@@ -102,6 +106,10 @@ shows a warning.
 3. **Policy:** picks become normal reminders, so quiet hours, daily limits, mutes and pause all apply.
 4. **Deliver:** at most two per scan, each with its source and Done, Snooze and Stop buttons.
 
+**Person briefs.** Ask "tell me about Arjun" and the `about` tool gathers every entry naming Arjun,
+across all tables, with each table's purpose and your original words. The reply leads with what's
+still open and links the rest.
+
 **Photo capture.** A photo goes through the normal agent turn, using the same saving tools as text.
 Receipt items become separate rows, and the total stays out of the table so sums come out right. The
 photo itself is never stored.
@@ -116,10 +124,12 @@ Both evals use synthetic data with real Claude calls, and results are saved in
 | Setup | Answerable questions | Nothing-saved questions |
 | --- | --- | --- |
 | Plain vector search | 21/24 | 0/10 |
-| Recall's hybrid search | 47/48 | 18/20 |
+| Recall's hybrid search, 2 runs | 47/48 | 18/20 |
+| Hybrid with local search first, the default | 24/24 | 9/10 |
 
-Recall's runs took a median of about 4.8 seconds and cost about 0.06 cents per question. Hybrid ran
-each question twice, so its totals are doubled.
+Searching locally before the first model call cut the median answer from about 4.8 seconds to 2.8.
+Plain vector search and the first hybrid row come from earlier runs, and all of these used about
+0.06 cents per question or less.
 
 **Nudges:** 24 labelled rows with 7 truly open items, over 3 runs.
 
@@ -170,8 +180,8 @@ uv run recall-tokens revoke <id>
 claude mcp add --transport stdio --env RECALL_TOKEN=<token> recall -- uv run --directory "$PWD" recall-mcp
 ```
 
-Tools: `search_memory`, `query_memory`, `list_tables`, `get_entry`, `list_reminders`, `remember` and
-`set_reminder`. None of them can delete anything. For HTTP, run `uv run recall-mcp --http`, which
+Tools: `search_memory`, `about`, `query_memory`, `list_tables`, `get_entry`, `list_reminders`,
+`remember` and `set_reminder`. None of them can delete anything. For HTTP, run `uv run recall-mcp --http`, which
 listens on port 8788.
 
 **HTTP API:**
@@ -186,7 +196,7 @@ curl -X POST http://127.0.0.1:8787/v1/search \
 
 | Route | Scope |
 | --- | --- |
-| `POST /v1/search`, `POST /v1/query` | read |
+| `POST /v1/search`, `POST /v1/query`, `GET /v1/about/{name}` | read |
 | `GET /v1/tables`, `GET /v1/entries/{table}/{id}`, `GET /v1/reminders` | read |
 | `POST /v1/remember`, `POST /v1/reminders` | write |
 
@@ -196,7 +206,7 @@ curl -X POST http://127.0.0.1:8787/v1/search \
 | --- | --- |
 | `/nudge` | Check for unfinished business now |
 | `/undo` | Reverse the last save |
-| `/forget <words>` | Find an entry and erase it for good, after a tap |
+| `/forget <words>` | Find an entry, page through matches, and erase it for good after a tap |
 | `/export` | Download everything as CSV files in a zip |
 | `/delete_all` | Erase everything, after a tap |
 | `/timezone <Area/City>` | Set your time zone |

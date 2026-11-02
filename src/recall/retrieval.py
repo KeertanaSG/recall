@@ -27,6 +27,7 @@ log = logging.getLogger(__name__)
 MAX_ATTEMPTS = 1  # A second attempt doubled "nothing found" time and fixed nothing in evals/.
 MAX_CANDIDATES = 15
 FUSION_K = 60  # The standard reciprocal rank fusion constant.
+MIN_MATCH_SCORE = 0.63  # Set from the demo data: unrelated words reached 0.59 to 0.62.
 WORD = re.compile(r"[A-Za-z0-9]{4,}")
 
 PLAN_SYSTEM = """\
@@ -64,6 +65,16 @@ def hybrid_search(store: Store, text: str, limit: int, table: str | None = None)
     rankings = [store.keyword_search([word], limit, table) for word in WORD.findall(text)]
     try:
         rankings.append(store.search(text, limit, table))
+    except ToolError:
+        log.warning("Semantic search is unavailable, using keywords only")
+    return fuse(rankings, limit)
+
+
+def find_entries(store: Store, text: str, limit: int) -> list[dict]:
+    """Real matches only, for when the user picks an entry from a list."""
+    rankings = [store.keyword_search([word], limit) for word in WORD.findall(text)]
+    try:
+        rankings.append([r for r in store.search(text, limit) if r["score"] >= MIN_MATCH_SCORE])
     except ToolError:
         log.warning("Semantic search is unavailable, using keywords only")
     return fuse(rankings, limit)

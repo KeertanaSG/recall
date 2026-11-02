@@ -80,6 +80,10 @@ def create_app(service: RecallService) -> FastAPI:
     def search(body: SearchRequest, who: Identity = Depends(identity)) -> dict:
         return {"results": service.search(who, body.text, body.table, body.limit)}
 
+    @app.get("/v1/about/{name}")
+    def about(name: str, who: Identity = Depends(identity)) -> dict:
+        return {"results": service.about(who, name)}
+
     @app.post("/v1/query")
     def query(body: QueryRequest, who: Identity = Depends(identity)) -> dict:
         return service.query(who, body.sql)
