@@ -5,6 +5,12 @@ so everything is version 0.1.0.
 
 ## 2026-11-02
 
+### MCP from anywhere
+
+- MCP over HTTP now accepts `RECALL_MCP_PUBLIC_URL` as a host, so it can run behind a tunnel. All
+  other hosts and origins are refused.
+- Added setup steps for Claude Code and for a Cloudflare quick tunnel.
+
 ### Documentation (#11, #10)
 
 - Added `requirements.txt` with pinned, hashed versions, so Recall installs with pip as well as `uv`.

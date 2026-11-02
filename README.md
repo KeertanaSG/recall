@@ -77,6 +77,43 @@ To try it with sample data, stop the bot and run `uv run recall-demo`, which add
 entries with no model calls. Then send `/nudge` or `Tell me about Arjun`. Use `--fresh` to back up and
 replace existing memory.
 
+**4. Optional: connect Claude Code on this machine**
+
+Create a token, then add Recall as an MCP server. Only a hash of the token is stored, so copy it when
+it's shown.
+
+```sh
+uv run recall-tokens create --user <telegram-id> --name claude-code --scopes read,write --days 30
+claude mcp add --transport stdio --env RECALL_TOKEN=<token> recall -- uv run --directory "$PWD" recall-mcp
+```
+
+**5. Optional: reach MCP from anywhere**
+
+A free Cloudflare quick tunnel gives MCP a public HTTPS address. It works while your Mac is on and
+awake, and a small server is the planned permanent home. Each of the first two commands keeps
+running, so give each its own terminal.
+
+```sh
+# Terminal 1: prints an https://...trycloudflare.com address
+brew install cloudflared
+cloudflared tunnel --url http://127.0.0.1:8788
+
+# Terminal 2: use the address from terminal 1
+RECALL_MCP_PUBLIC_URL=<address> uv run recall-mcp --http
+
+# Terminal 3: create a short-lived token
+uv run recall-tokens create --user <telegram-id> --name remote-mcp --scopes read,write --days 1
+
+# On the machine you want to connect from
+claude mcp add --transport http recall-remote <address>/mcp --header "Authorization: Bearer <token>"
+```
+
+The address changes every time the tunnel restarts, so repeat these steps with the new one. The
+server refuses any host other than this machine and `RECALL_MCP_PUBLIC_URL`. Anyone with the token
+can read and add memories, so keep the expiry short.
+
+## Running the tests
+
 Run the tests with `uv run pytest`. They need no network or API keys, and they fail if line or
 branch coverage drops below 100%. Real processes check that concurrent writes aren't lost.
 
@@ -243,6 +280,8 @@ Tools: `search_memory`, `about`, `query_memory`, `list_tables`, `get_entry`, `li
 `remember` and `set_reminder`. None of them can delete anything. For HTTP, run `uv run recall-mcp --http`, which
 listens on port 8788.
 
+To reach MCP from another machine, see [step 5 of Setup](#setup).
+
 **HTTP API:**
 
 ```sh
@@ -313,7 +352,8 @@ records.
 - Evals use synthetic data, and photo capture has mostly been tested on a generated receipt.
 - A save that creates a new table can take 10 to 20 seconds.
 - English only.
-- It runs locally. The API and MCP server need HTTPS in front before they're exposed.
+- It runs locally. The HTTP API needs HTTPS in front before it's exposed, and the MCP tunnel only
+  works while the Mac is on.
 
 ## What's next
 

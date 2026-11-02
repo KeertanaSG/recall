@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace as NS
 
@@ -374,3 +375,10 @@ def test_muting_twice_keeps_one_entry(notes):
     notes.mute_kind("promise")
     notes.mute_kind("promise")
     assert notes.prefs().muted_kinds == ["promise"]
+
+
+def test_mcp_only_accepts_this_machine_and_its_public_address(service):
+    settings = replace(service.settings, mcp_public_url="https://recall.example.com")
+    allowed = mcp_server.transport_security(settings)
+    assert allowed.allowed_hosts == ["127.0.0.1:8788", "recall.example.com"]
+    assert allowed.allowed_origins == ["https://recall.example.com"]
