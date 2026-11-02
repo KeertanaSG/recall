@@ -8,7 +8,6 @@ current turn, which is what makes corrections and undo work.
 import csv
 import io
 import json
-import logging
 import math
 import os
 import re
@@ -27,6 +26,7 @@ import sqlite_vec
 from fastembed import TextEmbedding
 
 from recall.config import Settings
+from recall.logs import get_logger
 from recall.storage.base import (
     COLUMN_TYPES,
     EMBEDDING_DIM,
@@ -39,7 +39,7 @@ from recall.storage.base import (
     ToolError,
 )
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 RESERVED_NAMES = {*ROW_METADATA, "rowid", "oid"}
 IDENTIFIER = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
@@ -381,7 +381,7 @@ class Store:
         try:
             vectors = self.embedder.embed(texts, "document")
         except EmbeddingError:
-            log.warning("Skipped the semantic schema check because embeddings are unavailable")
+            log.warning("schema_check_skipped", reason="embeddings_unavailable")
             return None, sorted(similar)
         for row, vector in zip(existing, vectors[1:]):
             if cosine(vectors[0], vector) >= SIMILAR_DESCRIPTION:
@@ -746,7 +746,7 @@ class Store:
         try:
             vectors = self.embedder.embed(texts, "document")
         except EmbeddingError:
-            log.warning("Embedding failed for %d rows. Will retry.", len(rows))
+            log.warning("embedding_failed", rows=len(rows))
             return
         with self._transaction():
             for (entry, _row), vector in zip(rows, vectors):

@@ -9,7 +9,6 @@ nothing. If a model step fails, search still works, just with less filtering.
 """
 
 import json
-import logging
 import re
 from typing import TypedDict
 
@@ -17,10 +16,11 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 
 from recall.llm.base import LLM, LLMError
+from recall.logs import get_logger, measured
 from recall.prompts import render
 from recall.storage.base import MemoryStore, ToolError
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 MAX_CANDIDATES = 15
 FUSION_K = 60  # The standard reciprocal rank fusion constant.
@@ -56,7 +56,7 @@ def hybrid_search(
     try:
         rankings.append(store.search(text, limit, table))
     except ToolError:
-        log.warning("Semantic search is unavailable, using keywords only")
+        log.warning("semantic_search_unavailable")
     return fuse(rankings, limit)
 
 
@@ -66,7 +66,7 @@ def find_entries(store: MemoryStore, text: str, limit: int) -> list[dict]:
     try:
         rankings.append([r for r in store.search(text, limit) if r["score"] >= MIN_MATCH_SCORE])
     except ToolError:
-        log.warning("Semantic search is unavailable, using keywords only")
+        log.warning("semantic_search_unavailable")
     return fuse(rankings, limit)
 
 
@@ -114,16 +114,22 @@ class Retriever:
     def search(
         self, store: MemoryStore, text: str, table: str | None = None, limit: int = 8
     ) -> dict:
-        state = self.graph.invoke(
-            {"question": text, "table": table},
-            config={"configurable": {"store": store}},
-        )
-        results = state["relevant"][:limit]
-        return {
-            "results": results,
-            "nothing_relevant": not results,
-            "filtered_for_relevance": state["graded"],
-        }
+        with measured(log, "search", scoped=table is not None) as stats:
+            state = self.graph.invoke(
+                {"question": text, "table": table},
+                config={"configurable": {"store": store}},
+            )
+            results = state["relevant"][:limit]
+            stats.update(
+                candidates=len(state["candidates"]),
+                results=len(results),
+                graded=state["graded"],
+            )
+            return {
+                "results": results,
+                "nothing_relevant": not results,
+                "filtered_for_relevance": state["graded"],
+            }
 
     def _plan(self, state: RetrievalState, config: RunnableConfig) -> RetrievalState:
         subjects = [
@@ -145,7 +151,7 @@ class Retriever:
             try:
                 rankings.append(store.search(query, MAX_CANDIDATES, table))
             except ToolError:
-                log.warning("Semantic search is unavailable, using keywords only")
+                log.warning("semantic_search_unavailable")
                 break
         # One ranking per keyword, so a row matching several keywords rises in the fusion.
         for keyword in state["keywords"]:
@@ -170,5 +176,5 @@ class Retriever:
         try:
             return self.llm.ask_json(self.model, system, prompt, schema)
         except LLMError:
-            log.exception("A retrieval step failed, continuing without it")
+            log.warning("search_step_failed", schema=next(iter(schema["properties"])))
             return None

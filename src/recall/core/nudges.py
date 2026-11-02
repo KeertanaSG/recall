@@ -12,17 +12,17 @@ them.
 """
 
 import json
-import logging
 from datetime import UTC, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from recall.core.agent import summarize_row
 from recall.core.retrieval import fuse, hybrid_search, result_key
 from recall.llm.base import LLM, LLMError
+from recall.logs import get_logger, measured
 from recall.prompts import render
 from recall.storage.base import ROW_METADATA, MemoryStore, Prefs, ToolError
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 NUDGE = "nudge"
 SCAN_EVERY = timedelta(days=1)
@@ -118,7 +118,7 @@ def find_candidates(store: MemoryStore, now: datetime) -> list[dict]:
     try:
         rankings.extend(store.search(phrase, POOL) for phrase in OPEN_LOOPS)
     except ToolError:
-        log.warning("Semantic search is unavailable, so nudges use yes/no columns only")
+        log.warning("semantic_search_unavailable", used_by="nudges")
     handled = store.linked_rows()
 
     def eligible(result: dict) -> bool:
@@ -171,7 +171,7 @@ class Nudger:
         try:
             verdict = self.llm.ask_json(self.model, JUDGE_SYSTEM, prompt, JUDGE_SCHEMA)
         except LLMError:
-            log.exception("The nudge judge failed")
+            log.warning("nudge_judge_failed")
             return None
         # Keys the model made up are dropped, so a nudge always points at a real entry.
         picks = [pick for pick in verdict["nudges"] if pick["key"] in by_key]
@@ -186,7 +186,10 @@ class Nudger:
         prefs = store.prefs()
         if not force and not self._is_due(prefs, now):
             return []
-        picks = self.judge(store, find_candidates(store, now), now)
+        with measured(log, "nudge_scan", forced=force) as stats:
+            candidates = find_candidates(store, now)
+            picks = self.judge(store, candidates, now)
+            stats.update(candidates=len(candidates), picked=len(picks or []))
         if picks is None:
             return []  # Left unstamped, so the next tick tries again.
         ids = []

@@ -5,17 +5,17 @@ model, because they outlive the message that created them.
 """
 
 import json
-import logging
 from datetime import datetime, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from recall.core.retrieval import Retriever
 from recall.llm.base import LLM, LLMError
+from recall.logs import get_logger
 from recall.prompts import render
 from recall.storage.base import COLUMN_TYPES, MemoryStore, ToolError
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 REMINDER_KINDS = ["deadline", "promise", "follow_up", "other"]
 ADD_ONLY_TOOLS = frozenset({"create_table", "add_column", "add_row", "set_reminder"})
@@ -224,6 +224,7 @@ class TableDesigner:
         store.create_table(
             design["name"], design["description"], design["columns"], confirmed_distinct
         )
+        log.info("table_created", table=design["name"], columns=len(design["columns"]))
         return {
             "created": design["name"],
             "columns": [
@@ -240,7 +241,7 @@ class TableDesigner:
         try:
             return self.llm.ask_json(self.model, DESIGN_SYSTEM, prompt, DESIGN_SCHEMA)
         except LLMError as exc:
-            log.exception("Table design failed")
+            log.warning("table_design_failed", error_type=type(exc).__name__)
             raise ToolError("Couldn't design the table just now. Try once more.") from exc
 
 

@@ -1,7 +1,6 @@
 """The Claude agent loop, plus the citation check on its final answer."""
 
 import json
-import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
@@ -10,10 +9,11 @@ from zoneinfo import ZoneInfo
 from recall.core.retrieval import Retriever, hybrid_search, result_key
 from recall.core.tools import ADD_ONLY_TOOLS, TableDesigner, Tools
 from recall.llm.base import LLM, LLMError, Stop, ToolResult
+from recall.logs import add, bind, get_logger, measured, new_id
 from recall.prompts import render
 from recall.storage.base import ROW_METADATA, MemoryStore, ToolError
 
-log = logging.getLogger(__name__)
+log = get_logger(__name__)
 
 MAX_STEPS = 12
 MAX_SOURCES_LISTED = 3
@@ -188,19 +188,24 @@ class Agent:
         self, store: MemoryStore, text: str, now: datetime | None = None, image: bytes | None = None
     ) -> Reply:
         now = now or datetime.now(UTC)
-        tools = Tools(store, text, now, self.retriever, self.designer)
-        context = message_context(store, now)
-        if self.prefetch:
-            context += prefetched_entries(store, text)
-        content = render("turn", context=context, text=text)
-        # Only this turn sees a photo: it's never stored, and the chat history keeps the text.
-        messages = [*store.recent_messages(), self.llm.user_message(content, image)]
-        final = self._attempt(store, messages, tools)
-        clean, sources = resolve_citations(final, store)
-        if store.turn_id is not None:
-            sources = []  # A save confirms itself, so a source list would just repeat it.
-        store.log_exchange(text, clean)
-        return Reply(clean, sources)
+        with (
+            bind(turn=new_id()),
+            measured(log, "turn", kind="chat", has_image=image is not None) as stats,
+        ):
+            tools = Tools(store, text, now, self.retriever, self.designer)
+            context = message_context(store, now)
+            if self.prefetch:
+                context += prefetched_entries(store, text)
+            content = render("turn", context=context, text=text)
+            # Only this turn sees a photo: it's never stored, and the chat history keeps the text.
+            messages = [*store.recent_messages(), self.llm.user_message(content, image)]
+            final = self._attempt(store, messages, tools)
+            clean, sources = resolve_citations(final, store)
+            stats.update(saved=len(tools.saved), cited=len(sources))
+            if store.turn_id is not None:
+                sources = []  # A save confirms itself, so a source list would just repeat it.
+            store.log_exchange(text, clean)
+            return Reply(clean, sources)
 
     def capture(self, store: MemoryStore, text: str, now: datetime | None = None) -> list[str]:
         """Save a message from another app, and return what was added.
@@ -210,10 +215,12 @@ class Agent:
         out of the chat history too, so outside text is never replayed as something the user said.
         """
         now = now or datetime.now(UTC)
-        tools = Tools(store, text, now, None, self.designer, ADD_ONLY_TOOLS)
-        content = render("turn", context=message_context(store, now), text=text)
-        self._attempt(store, [self.llm.user_message(content)], tools, CAPTURE_NOTE)
-        return tools.saved
+        with bind(turn=new_id()), measured(log, "turn", kind="capture") as stats:
+            tools = Tools(store, text, now, None, self.designer, ADD_ONLY_TOOLS)
+            content = render("turn", context=message_context(store, now), text=text)
+            self._attempt(store, [self.llm.user_message(content)], tools, CAPTURE_NOTE)
+            stats["saved"] = len(tools.saved)
+            return tools.saved
 
     def _attempt(
         self, store: MemoryStore, messages: list[dict], tools: Tools, note: str = ""
@@ -241,8 +248,10 @@ class Agent:
 
             results = []
             for call in reply.tool_calls:
+                add("tools", call.name)
                 try:
-                    results.append(ToolResult(call.id, tools.run(call.name, call.input)))
+                    with measured(log, "tool_call", expected=(ToolError,), tool=call.name):
+                        results.append(ToolResult(call.id, tools.run(call.name, call.input)))
                 except ToolError as exc:
                     results.append(ToolResult(call.id, str(exc), True))
             messages.append(self.llm.tool_results_message(results))

@@ -6,7 +6,7 @@ so a caller can't ask for someone else's data. Tokens are also rate limited and 
 """
 
 import json
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime
 
 from recall.access import OWNER, READ, WRITE, Identity, Limit, TokenStore, UsageLimiter
@@ -15,7 +15,10 @@ from recall.core.agent import Agent, Reply, TurnFailed
 from recall.core.nudges import Nudger
 from recall.core.retrieval import hybrid_search
 from recall.core.tools import Tools
-from recall.storage.base import StoreProvider
+from recall.logs import bind, get_logger, measured, user_ref
+from recall.storage.base import StoreProvider, ToolError
+
+log = get_logger(__name__)
 
 LIMIT_MESSAGES = {
     Limit.USER: "You've reached today's message limit. Please try again tomorrow.",
@@ -37,6 +40,9 @@ class NotFound(Exception):
 
 class Unavailable(Exception):
     """A model step failed, and nothing was saved."""
+
+
+EXPECTED = (AccessDenied, NotFound, RateLimited, ToolError, Unavailable)
 
 
 class RecallService:
@@ -62,6 +68,7 @@ class RecallService:
 
     def _authorize(self, identity: Identity, action: str, scope: str) -> None:
         if scope not in identity.scopes or not self.settings.allows(identity.user_id):
+            log.warning("access_denied", action=action, scope=scope)
             self._record(identity, action, "denied")
             raise AccessDenied(f"This token can't {action}.")
 
@@ -73,22 +80,28 @@ class RecallService:
     @contextmanager
     def access(self, identity: Identity, action: str, scope: str):
         """Authorize a call, open that user's store, and audit the outcome."""
-        self._authorize(identity, action, scope)
-        limit = self.settings.api_requests_per_minute
-        if identity.token_id is not None and not self.tokens.within_rate_limit(
-            identity.token_id, limit
-        ):
-            self._record(identity, action, "rate_limited")
-            raise RateLimited("Too many requests. Try again in a minute.")
-        outcome = "ok"
-        try:
-            with self.stores.open(identity.user_id) as store:
-                yield store
-        except BaseException:
-            outcome = "error"
-            raise
-        finally:
-            self._record(identity, action, outcome)
+        by_token = identity.token_id is not None
+        who = {"user": user_ref(identity.user_id), "channel": "token" if by_token else "telegram"}
+        with bind(**who, **({"token_id": identity.token_id} if by_token else {})):
+            self._authorize(identity, action, scope)
+            limit = self.settings.api_requests_per_minute
+            if by_token and not self.tokens.within_rate_limit(identity.token_id, limit):
+                log.warning("rate_limited", action=action)
+                self._record(identity, action, "rate_limited")
+                raise RateLimited("Too many requests. Try again in a minute.")
+            outcome = "ok"
+            # The bot opens a store every tick, so only token calls are logged as requests.
+            request = (
+                measured(log, "request", EXPECTED, action=action) if by_token else nullcontext()
+            )
+            try:
+                with request, self.stores.open(identity.user_id) as store:
+                    yield store
+            except BaseException:
+                outcome = "error"
+                raise
+            finally:
+                self._record(identity, action, outcome)
 
     def users(self) -> list[int]:
         """Everyone with saved data who is still allowed, for background work like reminders."""

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from recall.access import Identity
 from recall.config import Settings
 from recall.factory import build_service
+from recall.logs import get_logger, setup
 from recall.service import (
     AccessDenied,
     NotFound,
@@ -21,6 +22,8 @@ from recall.service import (
     Unavailable,
 )
 from recall.storage.base import ToolError
+
+log = get_logger(__name__)
 
 MAX_TEXT = 4000
 MAX_SQL = 2000
@@ -62,6 +65,7 @@ def create_app(service: RecallService) -> FastAPI:
     def identity(credentials: HTTPAuthorizationCredentials | None = Depends(bearer)) -> Identity:
         found = service.tokens.verify(credentials.credentials) if credentials else None
         if found is None:
+            log.warning("auth_failed", had_token=credentials is not None)
             raise HTTPException(401, "Invalid or expired token.", {"WWW-Authenticate": "Bearer"})
         return found
 
@@ -113,7 +117,13 @@ def create_app(service: RecallService) -> FastAPI:
 
 def main() -> None:
     settings = Settings.from_env()
-    uvicorn.run(create_app(build_service(settings)), host="127.0.0.1", port=settings.api_port)
+    setup(settings.data_dir, "api")
+    uvicorn.run(
+        create_app(build_service(settings)),
+        host="127.0.0.1",
+        port=settings.api_port,
+        log_config=None,
+    )
 
 
 if __name__ == "__main__":
