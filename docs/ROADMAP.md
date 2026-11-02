@@ -28,7 +28,7 @@ The targets are proposals, and the 95% figure should be confirmed after the firs
 
 ## Built today
 
-The core product exists and has 223 passing automated tests. Its first full live Telegram test
+The core product exists and has 331 passing automated tests with 100% line and branch coverage. Its first full live Telegram test
 passed on 2026-11-02.
 
 | Feature | What it does | Tested with |

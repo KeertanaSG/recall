@@ -50,7 +50,8 @@ To try it with sample data, stop the bot and run `uv run recall-demo`, which add
 entries with no model calls. Then send `/nudge` or `Tell me about Arjun`. Use `--fresh` to back up and
 replace existing memory.
 
-Run the tests with `uv run pytest`. They need no network or API keys.
+Run the tests with `uv run pytest`. They need no network or API keys, and they fail if line or
+branch coverage drops below 100%. Real processes check that concurrent writes aren't lost.
 
 ## Architecture
 
@@ -173,6 +174,10 @@ uv run python evals/run_nudges.py
 
 These call the Anthropic API and need a filled-in `.env`.
 
+**Prompt injection:** `evals/run_injection.py` hides orders in notes, names, a photo, `remember` text
+and the nudge judge's input. All 9 attacks were resisted on real Claude, with no data changed. This
+is one run of a small set, so it shows the defences work, not that they're unbreakable.
+
 ## Key decisions
 
 | Decision | Why | Trade-off |
@@ -275,7 +280,6 @@ records.
 
 ## Limitations
 
-- The injection and concurrent-write tests are still to come.
 - Evals use synthetic data, and photo capture has mostly been tested on a generated receipt.
 - A save that creates a new table can take 10 to 20 seconds.
 - English only.
