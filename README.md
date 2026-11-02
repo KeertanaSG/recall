@@ -31,7 +31,7 @@ Telegram means there's no app to install, and saving something takes one message
 You need:
 
 - [uv](https://docs.astral.sh/uv/), which installs the right Python for you
-- An [Anthropic API key](https://console.anthropic.com/)
+- An [Anthropic API key](https://console.anthropic.com/), or a key for another provider
 - A bot token from [@BotFather](https://t.me/BotFather)
 - Your numeric Telegram user ID, from [@userinfobot](https://t.me/userinfobot)
 
@@ -76,7 +76,7 @@ src/recall/
   channels/   telegram.py, api.py, mcp_server.py: thin layers over the service
   core/       agent.py, tools.py, retrieval.py, nudges.py: the product logic
   prompts/    Every prompt and long message, in four Jinja templates
-  llm/        base.py is the interface, claude.py is the provider
+  llm/        base.py is the interface, litellm_provider.py connects to the models
   storage/    base.py is the interface, store.py is SQLite and local embeddings
   service.py  The one path to a user's memory
   factory.py  The one place that chooses implementations
@@ -94,15 +94,15 @@ second, fake provider with a different message format to prove the seam works.
 
 | To change | Implement | Then |
 | --- | --- | --- |
-| The LLM provider | `LLM` in [`llm/base.py`](src/recall/llm/base.py) | Register it in [`factory.py`](src/recall/factory.py) and set `RECALL_LLM_PROVIDER` |
-| The models | Nothing | Set `RECALL_MODEL`, `RECALL_RETRIEVAL_MODEL` or `RECALL_DESIGN_MODEL` |
+| The model or provider | Nothing | Set `RECALL_MODEL`, `RECALL_RETRIEVAL_MODEL` or `RECALL_DESIGN_MODEL` to a LiteLLM name, like `openai/gpt-5`, and add its key |
+| The LLM layer | `LLM` in [`llm/base.py`](src/recall/llm/base.py) | Register it in [`factory.py`](src/recall/factory.py) and set `RECALL_LLM_PROVIDER` |
 | The embedder | `Embedder` in [`storage/base.py`](src/recall/storage/base.py) | Register it and set `RECALL_EMBEDDER` |
 | The database | `MemoryStore` and `StoreProvider` in [`storage/base.py`](src/recall/storage/base.py) | Register it and set `RECALL_STORAGE` |
 | Prompt wording | Nothing | Edit the template in `prompts/`, then rerun the evals |
 | The chat app | A new file in `channels/`, calling `RecallService` | Add a start command |
 
-Only Claude, local embeddings and SQLite exist today. A new provider also has to pass the evals,
-because prompts are tuned for the current models. Embeddings are stored at a fixed size of 384, so a
+Claude through LiteLLM, local embeddings and SQLite are what's been tested. Another model also has
+to pass the evals, because prompts are tuned for the current ones. Embeddings are stored at a fixed size of 384, so a
 new embedder with a different size needs a re-embed.
 
 ### How the main features work
@@ -151,7 +151,9 @@ Both evals use synthetic data with real Claude calls, and results are saved in
 | Recall's hybrid search, 2 runs | 47/48 | 18/20 |
 | Hybrid with local search first, the default | 24/24 | 9/10 |
 
-Searching locally before the first model call cut the median answer from about 4.8 seconds to 2.8.
+Searching locally before the first model call also cut model steps. In a same-hour comparison with
+LiteLLM on, answers took a median of 4.8 seconds, against 3.9 through the direct SDK, with equal
+accuracy. API speed varies by time of day, so compare runs from the same hour.
 Plain vector search and the first hybrid row come from earlier runs, and all of these used about
 0.06 cents per question or less.
 
@@ -185,6 +187,7 @@ is one run of a small set, so it shows the defences work, not that they're unbre
 | Haiku for most steps, Opus only for table design | Tables outlive the message that created them, and everything else needs to be cheap | Saves that create a table are slower |
 | One SQLite file per user | Free, fast, strong isolation, and `/export` and delete stay simple | Limited to one server. `MemoryStore` keeps a move to Postgres contained |
 | Interfaces only where swapping is realistic | The LLM, embedder, storage and channels can change without touching product logic | A little more code, and only one real implementation of each so far |
+| LiteLLM over a provider SDK | Models and providers become a setting | About 0.9 seconds slower per answer, and a pinned dependency to keep watching |
 | Local embeddings | No API cost, and note text isn't sent to an embedding provider | Adds memory use to each process |
 | Hosted models over a local LLM | A local Qwen3 benchmark stalled for hours | Message text goes to Anthropic |
 | No delete tool for the agent | Text inside a saved note can't trigger a delete, because deleting takes a tap | Bulk delete needs its own flow |
@@ -264,6 +267,9 @@ jq -c 'select(.level != "info")' data/logs/*.jsonl
 ```
 
 ## Security and privacy
+
+- **Pinned LiteLLM:** its PyPI package was compromised twice in 2026, so `pyproject.toml` pins exactly
+  1.106.2 and `uv.lock` pins its hash. Check its advisories before changing that pin.
 
 - **Isolation:** each user has their own database, and a caller's user always comes from a verified
   identity, never from a request.

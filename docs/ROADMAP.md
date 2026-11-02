@@ -20,7 +20,7 @@ run over 10 seconds, and real use and scale are not yet proven.
 | Goal | Target | Today | How we get there |
 | --- | --- | --- | --- |
 | Accuracy | At least 95% on realistic evals, by subject | 24/24 answerable and 9/10 nothing-saved with search-first, on synthetic data | Subject-by-subject evals, graded retrieval, citations read from the database |
-| Speed | Saves under 10 seconds, answers under 5 seconds | 2.8 second median answer; saves 1.9 to 5.2 seconds, up to about 20 with a new table | Search-first retrieval, which cut the median from about 4.8 seconds |
+| Speed | Saves under 10 seconds, answers under 5 seconds | 3.9 to 4.8 second median answer, depending on API load; saves 1.9 to 5.2 seconds, up to about 20 with a new table | Search-first retrieval, which cut the median from about 4.8 seconds |
 | Cost | Under 0.1 cents per message | About 0.06 cents per question | Haiku for most steps, Opus only for table design, local embeddings |
 | Scale | 100 users on one server, with a path to 1,000 | Estimated $16 a month in model costs at 100 users, untested | One file per user, then the Phase 5 fixes |
 
@@ -28,7 +28,7 @@ The targets are proposals, and the 95% figure should be confirmed after the firs
 
 ## Built today
 
-The core product exists and has 331 passing automated tests with 100% line and branch coverage. Its first full live Telegram test
+The core product exists and has 344 passing automated tests with 100% line and branch coverage. Its first full live Telegram test
 passed on 2026-11-02.
 
 | Feature | What it does | Tested with |
@@ -53,11 +53,12 @@ passed on 2026-11-02.
 | Photo capture | Turns a photo into rows, with each receipt item saved separately. The photo is never stored | Real Claude with a generated receipt, automated tests |
 | Person briefs | Gathers everything about a name across tables into one connected answer | Real Claude on demo data |
 | Demo seed | `recall-demo` adds 36 backdated entries with no model calls | Automated tests, real run |
+| LiteLLM | Any supported model through a setting, pinned to one checked version | Real Claude, all three evals |
 | Swappable parts | LLM, embedder, storage and channels sit behind interfaces, chosen in `factory.py` | Automated boundary tests, a fake second provider |
 | Structured logs | JSON events per process with turn IDs, timings and token totals, and no memory text | Real Claude across all three processes, automated tests |
 | Add-only saving | `remember` from other apps can only add, can't read, and returns only new entry IDs | Real Claude, automated tests |
 
-Search-first retrieval is on by default, and scored 24/24 and 9/10 with a 2.8 second median. Crisis
+Search-first retrieval is on by default, and scored 24/24 and 9/10 or better. Crisis
 replies point to trusted people and local services, and never include a phone number the model
 can't check.
 
