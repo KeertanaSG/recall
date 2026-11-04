@@ -96,7 +96,7 @@ def bot(tmp_path, embedder):
         (tg.handle_timezone, [], "Your time zone is Asia/Kolkata"),
         (tg.handle_timezone, ["Mars/Base"], "don't know that zone"),
         (tg.handle_timezone, ["Europe/Paris"], "Time zone set to Europe/Paris"),
-        (tg.handle_quiet, [], "Quiet hours: 22:00 to 08:00"),
+        (tg.handle_quiet, [], "Quiet hours: 23:00 to 08:00"),
         (tg.handle_quiet, ["off"], "Quiet hours are off"),
         (tg.handle_quiet, ["nope", "x"], "24-hour times"),
         (tg.handle_quiet, ["23:00", "07:00"], "Quiet hours are 23:00 to 07:00"),

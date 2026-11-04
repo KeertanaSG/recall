@@ -179,7 +179,7 @@ All of these are built except the digest. Step 5 is partly done: there's a 5,524
 
 - **Languages:** English only for now.
 - **Inferred promises:** proactive messages can fire on them. A nudge must pass a Haiku judge and the reminder rules, and each one has a stop button.
-- **Quiet hours:** on by default, from 22:00 to 08:00. Reminders the user asked for still fire on time.
+- **Quiet hours:** on by default, from 23:00 to 08:00. Reminders the user asked for still fire on time.
 
 ## Open questions
 

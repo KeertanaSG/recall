@@ -19,7 +19,7 @@ def reminder(explicit=0, kind="promise"):
 
 @pytest.mark.parametrize(
     ("hour", "quiet"),
-    [(21, False), (22, True), (23, True), (3, True), (7, True), (8, False), (12, False)],
+    [(22, False), (23, True), (3, True), (7, True), (8, False), (12, False)],
 )
 def test_overnight_quiet_hours(hour, quiet):
     assert is_quiet(at(hour), Prefs("Asia/Kolkata")) is quiet
