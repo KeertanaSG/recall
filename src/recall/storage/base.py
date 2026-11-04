@@ -34,7 +34,7 @@ class ToolError(Exception):
 class Prefs:
     timezone: str
     quiet_enabled: bool = True
-    quiet_start: str = "22:00"
+    quiet_start: str = "23:00"
     quiet_end: str = "08:00"
     paused: bool = False
     muted_kinds: list[str] = field(default_factory=list)
