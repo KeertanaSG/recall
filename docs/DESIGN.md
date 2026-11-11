@@ -56,6 +56,7 @@ that nothing matches. Each addition solved a specific problem:
 | Addition | Problem it solves |
 | --- | --- |
 | Keyword search | Embeddings blur names and exact words |
+| BM25 keyword ranking (FTS5, trigram) | Keyword matches came back newest first, so the best match could be cut off |
 | Reciprocal rank fusion | Semantic and keyword scores can't be compared, but their ranks can |
 | Query planning | A question and its answer can share no words |
 | Relevance grading | Lets Recall say it found nothing |

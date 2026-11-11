@@ -114,6 +114,8 @@ CREATE TABLE IF NOT EXISTS {REMINDERS} (
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS _vectors
     USING vec0(embedding float[{EMBEDDING_DIM}] distance_metric=cosine);
+-- Keyword index. Like _vectors, its rowid is the row's _embeddings id.
+CREATE VIRTUAL TABLE IF NOT EXISTS _fts USING fts5(content, tokenize = 'trigram');
 """
 
 
@@ -123,6 +125,11 @@ def utc_now() -> str:
 
 def quote_identifier(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
+
+
+def escape_like(text: str) -> str:
+    """Make LIKE treat % and _ as literal characters, with backslash as the escape."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def validate_identifier(name: str, kind: str) -> str:
@@ -234,7 +241,12 @@ class Store:
         self.conn.enable_load_extension(False)
         self.conn.execute("PRAGMA journal_mode=WAL")
         self.conn.execute("PRAGMA secure_delete=ON")
+        new_index = not self.conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE name = '_fts'"
+        ).fetchone()
         self.conn.executescript(SCHEMA)
+        if new_index:
+            self._build_keyword_index()
 
     def close(self) -> None:
         self.conn.close()
@@ -510,7 +522,7 @@ class Store:
         )
         row_id = cursor.lastrowid
         self._log(table, row_id, "insert", new=row)
-        self._mark_stale(table, row_id)
+        self._row_changed(table, row_id)
         return row_id
 
     def _update(self, table: str, row_id: int, changes: dict[str, Any], reason: str) -> None:
@@ -528,7 +540,7 @@ class Store:
             new=changes,
             reason=reason,
         )
-        self._mark_stale(table, row_id)
+        self._row_changed(table, row_id)
 
     def _log(
         self,
@@ -583,14 +595,14 @@ class Store:
         name = quote_identifier(table)
         if op == "insert":
             self.conn.execute(f"DELETE FROM {name} WHERE id = ?", (row_id,))
-            self._drop_embedding(table, row_id)
+            self._row_removed(table, row_id)
         elif op == "update":
             old = json.loads(entry["old_values"])
             assignments = ", ".join(f"{quote_identifier(column)} = ?" for column in old)
             self.conn.execute(
                 f"UPDATE {name} SET {assignments} WHERE id = ?", (*old.values(), row_id)
             )
-            self._mark_stale(table, row_id)
+            self._row_changed(table, row_id)
         elif op == "add_column":
             column = json.loads(entry["new_values"])["column"]
             self.conn.execute(f"ALTER TABLE {name} DROP COLUMN {quote_identifier(column)}")
@@ -619,9 +631,11 @@ class Store:
                     "DELETE FROM _history WHERE table_name = ? AND row_id = ?",
                     (target_table, target_id),
                 )
-                self._drop_embedding(target_table, target_id)
+                self._row_removed(target_table, target_id)
             self.conn.execute("DELETE FROM _messages")
             self.conn.execute("DELETE FROM _turns WHERE id NOT IN (SELECT turn_id FROM _history)")
+            # Merge the keyword index, so the erased words don't linger in old segments.
+            self.conn.execute("INSERT INTO _fts (_fts) VALUES ('optimize')")
         self.conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
         return True
 
@@ -694,51 +708,46 @@ class Store:
             )
         return results
 
-    def _text_columns(self) -> dict[str, list[str]]:
-        searchable = {REMINDERS: ["text", "source_text"]}
-        for row in self.conn.execute("SELECT name FROM _tables").fetchall():
-            columns = self._columns(row["name"])
-            text = [name for name, kind in columns.items() if kind == "text"]
-            searchable[row["name"]] = ["source_text", *text]
-        return searchable
-
     def keyword_search(
         self, terms: list[str], limit: int = 15, table: str | None = None, whole_word: bool = False
     ) -> list[dict]:
-        """Find literal words, which embeddings can miss, such as names."""
-        patterns = [
-            "%" + term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
-            for term in terms
-            if term.strip()
-        ]
-        if not patterns:
-            return []
-        searchable = self._text_columns()
-        results = []
-        for name, columns in searchable.items():
-            if table and name != table:
-                continue
-            clause = " OR ".join(
-                f"{quote_identifier(column)} LIKE ? ESCAPE '\\'"
-                for column in columns
-                for _ in patterns
-            )
-            rows = self.conn.execute(
-                f"SELECT * FROM {quote_identifier(name)} WHERE {clause} ORDER BY id DESC LIMIT ?",
-                (
-                    *(pattern for _ in columns for pattern in patterns),
-                    limit * 5 if whole_word else limit,
-                ),
+        """Find literal words, which embeddings can miss, such as names. Best matches first.
+
+        Terms are combined with OR and ranked by BM25, so rows that match more terms, and
+        rarer ones, come first. A term matches inside words, so stay finds homestay, unless
+        whole_word is set. The index is built from three-letter pieces, so shorter terms
+        like Al are matched by scanning, and those rows come after the ranked ones, newest first.
+        """
+        terms = [term.strip() for term in terms if term.strip()]
+        ranked = [term for term in terms if len(term) >= 3]
+        short = [term for term in terms if len(term) < 3]
+        fetch = limit * 5 if whole_word else limit
+        matches = []
+        if ranked:
+            query = " OR ".join('"' + term.replace('"', '""') + '"' for term in ranked)
+            matches += self.conn.execute(
+                """SELECT e.table_name, e.row_id FROM _fts JOIN _embeddings e ON e.id = _fts.rowid
+                   WHERE _fts MATCH ? AND (? IS NULL OR e.table_name = ?)
+                   ORDER BY _fts.rank LIMIT ?""",
+                (query, table, table, fetch),
             ).fetchall()
-            if whole_word:
-                words = re.compile("|".join(rf"\b{re.escape(term)}\b" for term in terms), re.I)
-                rows = [
-                    row
-                    for row in rows
-                    if any(words.search(str(value)) for value in dict(row).values())
-                ]
-            results.extend({"table": name, "row": self._public_row(row)} for row in rows)
-        return results[:limit]
+        if short:
+            matches += self.conn.execute(
+                f"""SELECT e.table_name, e.row_id FROM _fts JOIN _embeddings e ON e.id = _fts.rowid
+                    WHERE ({" OR ".join("_fts.content LIKE ? ESCAPE '\\'" for _ in short)})
+                    AND (? IS NULL OR e.table_name = ?) ORDER BY e.id DESC LIMIT ?""",
+                (*(f"%{escape_like(term)}%" for term in short), table, table, fetch),
+            ).fetchall()
+        unique = dict.fromkeys((match["table_name"], match["row_id"]) for match in matches)
+        rows = [(name, self.get_row(name, row_id)) for name, row_id in unique]
+        if whole_word:
+            words = re.compile("|".join(rf"\b{re.escape(term)}\b" for term in terms), re.I)
+            rows = [
+                (name, row)
+                for name, row in rows
+                if any(words.search(str(value)) for value in row.values())
+            ]
+        return [{"table": name, "row": self._public_row(row)} for name, row in rows[:limit]]
 
     def sync_embeddings(self) -> None:
         """Embed anything stale. Failures stay marked and are retried on the next tick."""
@@ -766,20 +775,44 @@ class Store:
                     "UPDATE _embeddings SET embedded = 1 WHERE id = ?", (entry["id"],)
                 )
 
-    def _mark_stale(self, table: str, row_id: int) -> None:
-        self.conn.execute(
+    def _row_changed(self, table: str, row_id: int) -> None:
+        """Queue the row for embedding, and reindex its words in the same transaction."""
+        entry_id = self.conn.execute(
             """INSERT INTO _embeddings (table_name, row_id, embedded) VALUES (?, ?, 0)
-               ON CONFLICT (table_name, row_id) DO UPDATE SET embedded = 0""",
+               ON CONFLICT (table_name, row_id) DO UPDATE SET embedded = 0 RETURNING id""",
             (table, row_id),
-        )
+        ).fetchone()["id"]
+        self.conn.execute("DELETE FROM _fts WHERE rowid = ?", (entry_id,))
+        self._index_keywords(entry_id, table, self.get_row(table, row_id))
 
-    def _drop_embedding(self, table: str, row_id: int) -> None:
+    def _row_removed(self, table: str, row_id: int) -> None:
         entry = self.conn.execute(
             "SELECT id FROM _embeddings WHERE table_name = ? AND row_id = ?", (table, row_id)
         ).fetchone()
         if entry:
             self.conn.execute("DELETE FROM _vectors WHERE rowid = ?", (entry["id"],))
+            self.conn.execute("DELETE FROM _fts WHERE rowid = ?", (entry["id"],))
             self.conn.execute("DELETE FROM _embeddings WHERE id = ?", (entry["id"],))
+
+    def _index_keywords(self, entry_id: int, table: str, row: dict) -> None:
+        """Index the user's words and text values. Column names stay out, or amount would match
+        every expense."""
+        columns = (
+            ["text", "source_text"]
+            if table == REMINDERS
+            else ["source_text", *(n for n, kind in self._columns(table).items() if kind == "text")]
+        )
+        text = "\n".join(str(row[name]) for name in columns if row.get(name))
+        if text:
+            self.conn.execute("INSERT INTO _fts (rowid, content) VALUES (?, ?)", (entry_id, text))
+
+    def _build_keyword_index(self) -> None:
+        """Index rows saved before the keyword index existed."""
+        with self._transaction():
+            for entry in self.conn.execute("SELECT * FROM _embeddings").fetchall():
+                row = self.get_row(entry["table_name"], entry["row_id"])
+                if row:
+                    self._index_keywords(entry["id"], entry["table_name"], row)
 
     @staticmethod
     def _embedding_text(table: str, row: dict) -> str:

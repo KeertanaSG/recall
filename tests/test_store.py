@@ -145,7 +145,7 @@ def test_old_undo_button_is_refused(store, expenses):
 
 def test_failed_write_rolls_back_cleanly(store, expenses, monkeypatch):
     monkeypatch.setattr(
-        store, "_mark_stale", lambda *_: (_ for _ in ()).throw(RuntimeError("boom"))
+        store, "_row_changed", lambda *_: (_ for _ in ()).throw(RuntimeError("boom"))
     )
     with pytest.raises(RuntimeError):
         store.add_row(expenses, {"item": "cab"})

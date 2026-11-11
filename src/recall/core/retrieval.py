@@ -52,7 +52,7 @@ def hybrid_search(
     store: MemoryStore, text: str, limit: int, table: str | None = None
 ) -> list[dict]:
     """Merge semantic and keyword matches with no model call."""
-    rankings = [store.keyword_search([word], limit, table) for word in WORD.findall(text)]
+    rankings = [store.keyword_search(WORD.findall(text), limit, table)]
     try:
         rankings.append(store.search(text, limit, table))
     except ToolError:
@@ -62,7 +62,7 @@ def hybrid_search(
 
 def find_entries(store: MemoryStore, text: str, limit: int) -> list[dict]:
     """Real matches only, for when the user picks an entry from a list."""
-    rankings = [store.keyword_search([word], limit) for word in WORD.findall(text)]
+    rankings = [store.keyword_search(WORD.findall(text), limit)]
     try:
         rankings.append([r for r in store.search(text, limit) if r["score"] >= MIN_MATCH_SCORE])
     except ToolError:
@@ -153,9 +153,9 @@ class Retriever:
             except ToolError:
                 log.warning("semantic_search_unavailable")
                 break
-        # One ranking per keyword, so a row matching several keywords rises in the fusion.
-        for keyword in state["keywords"]:
-            rankings.append(store.keyword_search([keyword], MAX_CANDIDATES, table))
+        # One BM25 ranking for all keywords, so rows matching several of them already lead it,
+        # and keywords don't outvote the semantic queries in the fusion.
+        rankings.append(store.keyword_search(state["keywords"], MAX_CANDIDATES, table))
         return {"candidates": fuse(rankings)}
 
     def _grade(self, state: RetrievalState) -> RetrievalState:

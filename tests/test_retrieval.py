@@ -10,7 +10,7 @@ import pytest
 from recall.core.retrieval import Retriever, fuse
 from recall.llm.claude import ClaudeLLM
 from recall.storage.base import EmbeddingError
-from recall.storage.store import LocalEmbedder, ToolError
+from recall.storage.store import LocalEmbedder, Store, ToolError
 
 
 def reply(payload, stop_reason="end_turn"):
@@ -134,6 +134,75 @@ def test_keyword_search_covers_reminders(notes):
 
     notes.add_reminder("send Priya the file", datetime(2026, 12, 1, tzinfo=UTC), "promise", False)
     assert notes.keyword_search(["priya"])[0]["table"] == "_reminders"
+
+
+def ids(results):
+    return [(r["table"], r["row"]["id"]) for r in results]
+
+
+def test_keyword_search_ranks_by_relevance_not_recency(notes):
+    notes.add_row("notes", {"body": "cab again"}, "cab again")
+    # The older row matches both words, so it beats the newer row that matches one.
+    assert ids(notes.keyword_search(["arjun", "tickets", "cab"]))[0] == ("notes", 1)
+
+
+def test_keyword_search_ranks_across_tables_together(notes):
+    from datetime import datetime
+
+    for n in range(5):
+        notes.add_reminder(f"call the bank {n}", datetime(2026, 12, 1, tzinfo=UTC), "other", True)
+    # Reminders used to fill the list before any other table was read.
+    assert ("notes", 1) in ids(notes.keyword_search(["bank", "arjun"], limit=3))
+
+
+def test_keyword_search_matches_inside_words_unless_whole_word(notes):
+    assert ids(notes.keyword_search(["airp"])) == [("notes", 2)]
+    assert ids(notes.keyword_search(["arj"])) == [("notes", 1)]
+    assert notes.keyword_search(["arj"], whole_word=True) == []
+    assert ids(notes.keyword_search(["arjun"], whole_word=True)) == [("notes", 1)]
+    assert ids(notes.keyword_search(["cab"], table="notes")) == [("notes", 2)]
+    assert notes.keyword_search(["cab"], table="_reminders") == []
+
+
+def test_keyword_search_finds_terms_under_three_characters(notes):
+    notes.add_row("notes", {"body": "coffee with Al"}, "coffee with Al")
+    notes.add_row("notes", {"body": "50% off at the 2_for_1 sale"}, "")
+    assert ids(notes.keyword_search(["Al"], whole_word=True)) == [("notes", 4)]
+    assert ids(notes.keyword_search(["al"], table="notes")) == [("notes", 5), ("notes", 4)]
+    assert notes.keyword_search(["al"], table="films") == []
+    # Ranked matches lead, then short-term matches, each row once.
+    assert ids(notes.keyword_search(["dune", "al"]))[0] == ("notes", 3)
+    assert len(ids(notes.keyword_search(["coffee", "Al"]))) == len(
+        set(ids(notes.keyword_search(["coffee", "Al"])))
+    )
+    assert ids(notes.keyword_search(["%"])) == [("notes", 5)]
+    assert ids(notes.keyword_search(["_"])) == [("notes", 5)]
+
+
+def test_keyword_index_follows_updates_undo_and_forget(notes):
+    notes.update_row("notes", 2, {"body": "train to airport"}, "wrong mode")
+    assert ids(notes.keyword_search(["train"])) == [("notes", 2)]
+    notes.undo()
+    assert notes.keyword_search(["train"]) == []
+    notes.forget("notes", 1)
+    assert notes.keyword_search(["arjun"]) == []
+    assert notes.conn.execute("SELECT COUNT(*) FROM _fts").fetchone()[0] == 2
+
+
+def test_rows_without_text_stay_out_of_the_keyword_index(store):
+    store.create_table("steps", "Daily steps", [{"name": "count", "type": "integer"}])
+    store.add_row("steps", {"count": 9000})
+    assert store.keyword_search(["9000"]) == []
+    assert store.keyword_search(["count"]) == []
+
+
+def test_existing_databases_get_a_keyword_index(notes, embedder):
+    notes.conn.execute("DROP TABLE _fts")
+    notes.conn.execute("DELETE FROM notes WHERE id = 3")  # An entry left behind by old data.
+    notes.close()
+    with Store(notes.path, embedder, "Asia/Kolkata") as reopened:
+        assert ids(reopened.keyword_search(["arjun"])) == [("notes", 1)]
+        assert reopened.keyword_search(["dune"]) == []
 
 
 def test_required_columns_are_enforced(store):

@@ -3,6 +3,20 @@
 Notable changes to Recall, newest first, grouped by pull request. There are no tagged releases yet,
 so everything is version 0.1.0.
 
+## 2026-11-10
+
+### Ranked keyword search
+
+- Keyword search now uses an SQLite FTS5 index ranked by BM25, instead of `LIKE` with newest rows
+  first. All keywords go in one query, so a row matching several of them ranks first, and a busy
+  table no longer crowds out the others.
+- The index uses the trigram tokenizer, so a term still matches inside a word, as `LIKE` did.
+  Terms under three characters, like `Al`, are matched by a scan and listed after ranked results.
+- The index updates in the same transaction as each write. Existing databases build it on first
+  open, and `forget` merges it so erased words don't stay in it.
+- With no model calls on the 5,524-row eval history, the same 22 of 24 needles make the top 15
+  and mean reciprocal rank rises from 0.612 to 0.623. One question moved from 13th to 4th.
+
 ## 2026-11-02
 
 ### Every-feature eval
