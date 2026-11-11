@@ -7,7 +7,7 @@ import anthropic
 import httpx
 import pytest
 
-from recall.core.retrieval import Retriever, fuse
+from recall.core.retrieval import Retriever, fuse, hybrid_search
 from recall.llm.claude import ClaudeLLM
 from recall.storage.base import EmbeddingError
 from recall.storage.store import LocalEmbedder, Store, ToolError
@@ -240,3 +240,8 @@ def test_a_failed_embedding_load_is_an_embedding_error(tmp_path, monkeypatch):
     monkeypatch.setattr("recall.storage.store.TextEmbedding", fails)
     with pytest.raises(EmbeddingError):
         LocalEmbedder(tmp_path).embed(["x"], "query")
+
+
+def test_hybrid_search_drops_weak_semantic_matches(notes):
+    # Unrelated rows still get a similarity score; they must not pad the list to the limit.
+    assert [r["row"]["body"] for r in hybrid_search(notes, "airport", 8)] == ["cab to airport"]

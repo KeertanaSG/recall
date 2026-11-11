@@ -51,10 +51,16 @@ GRADE_SCHEMA = {
 def hybrid_search(
     store: MemoryStore, text: str, limit: int, table: str | None = None
 ) -> list[dict]:
-    """Merge semantic and keyword matches with no model call."""
+    """Merge keyword matches with close semantic matches, with no model call.
+
+    Nothing grades these results, so weak semantic matches are dropped rather than
+    padding the list up to the limit with unrelated rows.
+    """
     rankings = [store.keyword_search(WORD.findall(text), limit, table)]
     try:
-        rankings.append(store.search(text, limit, table))
+        rankings.append(
+            [r for r in store.search(text, limit, table) if r["score"] >= MIN_MATCH_SCORE]
+        )
     except ToolError:
         log.warning("semantic_search_unavailable")
     return fuse(rankings, limit)
@@ -62,12 +68,7 @@ def hybrid_search(
 
 def find_entries(store: MemoryStore, text: str, limit: int) -> list[dict]:
     """Real matches only, for when the user picks an entry from a list."""
-    rankings = [store.keyword_search(WORD.findall(text), limit)]
-    try:
-        rankings.append([r for r in store.search(text, limit) if r["score"] >= MIN_MATCH_SCORE])
-    except ToolError:
-        log.warning("semantic_search_unavailable")
-    return fuse(rankings, limit)
+    return hybrid_search(store, text, limit)
 
 
 class RetrievalState(TypedDict, total=False):
